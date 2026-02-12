@@ -17,19 +17,23 @@ if "impact_cache" not in st.session_state: st.session_state["impact_cache"] = No
 
 def create_pdf_report(res_name, res_cat, res_desc, history_df):
     pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
+    pdf.set_left_margin(15);
+    pdf.set_right_margin(15)
+
     font_path = "DejaVuSans.ttf"
     if os.path.exists(font_path):
-        pdf.add_font("DejaVu", "", font_path)
-        pdf.set_font("DejaVu", size=12)
+        pdf.add_font("DejaVu", "", font_path);
         fn = "DejaVu"
+        pdf.set_font("DejaVu", size=12)
     else:
-        pdf.set_font("Arial", size=12)
-        fn = "Arial"
+        fn = "Arial"; pdf.set_font("Arial", size=12)
 
     pdf.set_font(fn, size=18);
     pdf.cell(0, 15, txt="ОТЧЕТ О ЦЕННОСТИ ИР", ln=True, align='C')
     pdf.set_font(fn, size=11);
+    pdf.set_x(15)
     pdf.cell(0, 10, txt=f"Ресурс: {res_name} | Категория: {res_cat}", ln=True)
     pdf.multi_cell(0, 7, txt=f"Описание: {res_desc}");
     pdf.ln(5)
@@ -37,18 +41,24 @@ def create_pdf_report(res_name, res_cat, res_desc, history_df):
     if not history_df.empty:
         plt.figure(figsize=(10, 4))
         plt.plot(history_df["Дата"], history_df["Общий"], marker='o', color='#1f77b4')
-        plt.title("Динамика ранга");
+        plt.title("Динамика ранга ценности");
         plt.grid(True, alpha=0.3)
         img_buf = BytesIO();
-        plt.savefig(img_buf, format='png');
+        plt.savefig(img_buf, format='png', bbox_inches='tight');
         plt.close()
-        pdf.image(img_buf, x=15, w=180);
-        pdf.ln(5)
+        pdf.set_x(15);
+        pdf.image(img_buf, w=180);
+        pdf.ln(10)
 
-    pdf.set_font(fn, size=10)
+    pdf.set_font(fn, size=12);
+    pdf.set_x(15);
+    pdf.cell(0, 10, txt="История экспертных оценок:", ln=True)
+    pdf.set_font(fn, size=9)
     for _, row in history_df.iterrows():
         line = f"{str(row['Дата'])[:10]} | {row['Событие']} | Ранг: {row['Общий']} [Ф:{row['Фин']}, О:{row['Опер']}, Ю:{row['Юр']}, Р:{row['Реп']}, С:{row['Страт']}]"
-        pdf.multi_cell(0, 6, txt=line)
+        pdf.set_x(15);
+        pdf.multi_cell(0, 8, txt=line, border='B');
+        pdf.ln(1)
     return bytes(pdf.output())
 
 
@@ -58,7 +68,7 @@ tab1, tab2, tab3 = st.tabs(["📂 Реестр ресурсов", "📊 Анал
 with tab1:
     c1, c2 = st.columns([1, 2])
     with c1:
-        st.header("Добавить ИР")
+        st.header("Добавить ресурс")
         n_n = st.text_input("Название", key="reg_n")
         n_d = st.text_area("Описание", key="reg_d")
         n_c = st.selectbox("Категория", ["Общедоступная", "Персональные данные", "Коммерческая тайна",
@@ -86,7 +96,6 @@ with tab2:
             rid = r_map[sel]
             rname, rdesc, rcat = db.get_resource_by_id(rid)
             hist = db.get_evaluation_history(rid)
-            # Извлекаем "Память"
             mem = db.get_recent_evaluations_for_learning(5)
 
             if hist:
@@ -106,14 +115,14 @@ with tab2:
             ca1, ca2 = st.columns(2)
             with ca1:
                 if st.button("🔍 Анализ ИИ", key="b_ai1"):
-                    with st.spinner("Думаю..."):
+                    with st.spinner("Анализ..."):
                         st.session_state["ai_cache"] = ai.get_ai_recommendation(rname, rdesc, rcat, mem)
                         st.session_state["impact_cache"] = None
             with ca2:
                 e_v = st.text_input("Событие:", key="e_v_txt")
                 if st.button("🔮 Прогноз", key="b_ai2"):
                     if e_v:
-                        with st.spinner("Симулирую..."):
+                        with st.spinner("Прогнозирование..."):
                             st.session_state["impact_cache"] = ai.analyze_event_impact(rname, cur_r, e_v, mem)
                             st.session_state["ai_cache"] = None
 
@@ -139,21 +148,28 @@ with tab2:
                 fr = logic.get_final_rank(ts)
                 db.save_evaluation(rid, rks, ts, fr, ft)
                 st.session_state["ai_cache"] = None;
-                st.session_state["impact_cache"] = None;
+                st.session_state["impact_cache"] = None
                 st.rerun()
 
             if hist:
-                st.markdown("---");
+                st.markdown("---")
+                st.subheader("📈 Мониторинг")
                 hdf = pd.DataFrame(hist, columns=["Дата", "Событие", "Общий", "Фин", "Опер", "Юр", "Реп", "Страт", "S"])
-                st.subheader("Динамика");
+                st.caption("Общий ранг ценности")
                 st.line_chart(hdf.set_index("Дата")["Общий"])
+
                 g1, g2, g3 = st.columns(3)
-                with g1: st.caption("Фин"); st.line_chart(hdf.set_index("Дата")["Фин"])
-                with g2: st.caption("Опер"); st.line_chart(hdf.set_index("Дата")["Опер"])
-                with g3: st.caption("Юр"); st.line_chart(hdf.set_index("Дата")["Юр"])
+                with g1: st.caption("Финансы"); st.line_chart(hdf.set_index("Дата")["Фин"])
+                with g2: st.caption("Операции"); st.line_chart(hdf.set_index("Дата")["Опер"])
+                with g3: st.caption("Юридический"); st.line_chart(hdf.set_index("Дата")["Юр"])
                 g4, g5, _ = st.columns(3)
-                with g4: st.caption("Реп"); st.line_chart(hdf.set_index("Дата")["Реп"])
-                with g5: st.caption("Страт"); st.line_chart(hdf.set_index("Дата")["Страт"])
+                with g4: st.caption("Репутация"); st.line_chart(hdf.set_index("Дата")["Реп"])
+                with g5: st.caption("Стратегия"); st.line_chart(hdf.set_index("Дата")["Страт"])
+
+                # ТАБЛИЦА (Теперь она здесь)
+                st.markdown("---")
+                st.subheader("📊 История изменений (Таблица)")
+                st.dataframe(hdf, use_container_width=True, hide_index=True)
 
 with tab3:
     st.header("📄 Отчетность")
@@ -171,5 +187,3 @@ with tab3:
                 pdf_o = create_pdf_report(tn, tc, td, hdf_r)
                 st.download_button("📥 СКАЧАТЬ PDF", data=pdf_o, file_name=f"Report_{tid}.pdf", mime="application/pdf",
                                    key="dl_b")
-            else:
-                st.warning("Нет оценок.")
