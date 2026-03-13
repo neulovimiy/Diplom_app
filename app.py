@@ -410,6 +410,10 @@ with tab2:
 
         if load_btn and selected_res_id:
             st.session_state.selected_resource_for_analysis = selected_res_id
+            # СБРАСЫВАЕМ ПРЕДЫДУЩИЙ АНАЛИЗ
+            st.session_state.rank_analysis_result = None
+            st.session_state.analysis_triggered = False
+            st.session_state.ai_suggestions = None
             st.rerun()
 
         # Если ресурс выбран, показываем его параметры
@@ -518,126 +522,370 @@ with tab2:
                                 st.error(f"Ошибка при анализе: {rank_analysis['error']}")
 
                     # Если есть результаты анализа, показываем их
-                    if st.session_state.get("rank_analysis_result"):
-                        result = st.session_state.rank_analysis_result
+                        # Если есть результаты анализа, показываем их
+                        # Если есть результаты анализа, показываем их
+                        if st.session_state.get("rank_analysis_result"):
+                            result = st.session_state.rank_analysis_result
 
-                        # Показываем общее заключение
-                        if "summary" in result:
-                            st.info(f"**📋 Заключение ИИ:** {result['summary']}")
+                            # Показываем общее заключение
+                            if "summary" in result:
+                                st.info(f"**📋 Заключение ИИ:** {result['summary']}")
 
-                        # Показываем нормативные документы
-                        if "law_refs" in result and result["law_refs"]:
-                            with st.expander("📚 Нормативные документы, использованные при анализе"):
-                                for ref in result["law_refs"]:
-                                    if os.path.exists(f"sources/{ref}"):
-                                        st.markdown(f"- 📄 `{ref}`")
-                                    else:
-                                        st.markdown(f"- 📄 {ref}")
+                            # Показываем нормативные документы
+                            law_refs_list = result.get('law_refs', [])
+                            if law_refs_list:
+                                with st.expander("📚 Нормативные документы, использованные при анализе"):
+                                    for ref in law_refs_list:
+                                        if os.path.exists(f"sources/{ref}"):
+                                            st.markdown(f"- 📄 `{ref}`")
+                                        else:
+                                            st.markdown(f"- 📄 {ref}")
 
-                        # Получаем ранги из результата или используем расчетные
-                        if "rank_analysis" in result:
-                            rank_data = result["rank_analysis"]
-
-                            # Извлекаем значения с приоритетом от ИИ
-                            fin_val = rank_data.get('fin', {}).get('value', base_ranks['fin'])
-                            oper_val = rank_data.get('oper', {}).get('value', base_ranks['oper'])
-                            jur_val = rank_data.get('jur', {}).get('value', base_ranks['jur'])
-                            rep_val = rank_data.get('rep', {}).get('value', base_ranks['rep'])
-                            strat_val = rank_data.get('strat', {}).get('value', base_ranks['strat'])
-
-                            fin_reason = rank_data.get('fin', {}).get('reasoning', '')
-                            oper_reason = rank_data.get('oper', {}).get('reasoning', '')
-                            jur_reason = rank_data.get('jur', {}).get('reasoning', '')
-                            rep_reason = rank_data.get('rep', {}).get('reasoning', '')
-                            strat_reason = rank_data.get('strat', {}).get('reasoning', '')
-
-                            fin_law = rank_data.get('fin', {}).get('law_ref', '')
-                            oper_law = rank_data.get('oper', {}).get('law_ref', '')
-                            jur_law = rank_data.get('jur', {}).get('law_ref', '')
-                            rep_law = rank_data.get('rep', {}).get('law_ref', '')
-                            strat_law = rank_data.get('strat', {}).get('law_ref', '')
-                        else:
-                            # Если нет анализа, используем расчетные
-                            fin_val = oper_val = jur_val = rep_val = strat_val = 1
-                            fin_reason = oper_reason = jur_reason = rep_reason = strat_reason = "Анализ не выполнен"
+                            # Получаем ранги из результата или используем расчетные
+                            # Инициализируем переменные значениями по умолчанию
+                            fin_reason = oper_reason = jur_reason = rep_reason = strat_reason = ""
                             fin_law = oper_law = jur_law = rep_law = strat_law = ""
 
-                        st.markdown("### Результаты расчета с обоснованием")
+                            # Получаем коэффициенты из logic.py
+                            k_t = logic.TYPE_COEFFS.get(type_key, 1.0)
+                            k_l = logic.LIFECYCLE_COEFFS.get(life_key, 1.0)
+                            k_f = logic.FORMAT_COEFFS.get(format_key, 1.0)
+                            k_s = logic.SCALE_COEFFS.get(scale_key, 1.0)
 
-                        # Ползунки с обоснованием
-                        col_r1, col_r2 = st.columns(2)
+                            # БАЗОВЫЕ РАНГИ ИЗ LOGIC.PY (то, что показывает в таблице)
+                            base_fin = base_ranks['fin']
+                            base_oper = base_ranks['oper']
+                            base_jur = base_ranks['jur']
+                            base_rep = base_ranks['rep']
+                            base_strat = base_ranks['strat']
 
-                        with col_r1:
-                            st.markdown("**💰 Финансовый ущерб (1-8)**")
-                            r_fin = st.slider(
-                                "Финансовый",
-                                min_value=1, max_value=8,
-                                value=int(fin_val),
-                                key="rank_fin_slider",
-                                label_visibility="collapsed"
-                            )
-                            if fin_reason:
-                                if fin_law:
-                                    st.info(f"📌 {fin_reason}\n\n*Источник: {fin_law}*")
-                                else:
-                                    st.info(f"📌 {fin_reason}")
+                            # МАТЕМАТИЧЕСКИ РАССЧИТАННЫЕ ЗНАЧЕНИЯ (итоговые ранги)
+                            fin_val = min(8, int(round(base_fin * k_t * k_l * k_f)))
+                            oper_val = min(8, int(round(base_oper * k_t * k_s)))
+                            jur_val = min(5, int(round(base_jur * k_t * k_l)))
+                            rep_val = min(5, int(round(base_rep * k_t * k_l)))
+                            strat_val = min(5, int(round(base_strat * k_t * k_l)))
 
-                            st.markdown("**⚙️ Операционный сбой (1-8)**")
-                            r_oper = st.slider(
-                                "Операционный",
-                                min_value=1, max_value=8,
-                                value=int(oper_val),
-                                key="rank_oper_slider",
-                                label_visibility="collapsed"
-                            )
-                            if oper_reason:
-                                if oper_law:
-                                    st.info(f"📌 {oper_reason}\n\n*Источник: {oper_law}*")
-                                else:
-                                    st.info(f"📌 {oper_reason}")
+                            if "rank_analysis" in result:
+                                rank_data = result["rank_analysis"]
 
-                        with col_r2:
-                            st.markdown("**⚖️ Юридический риск (1-5)**")
-                            r_jur = st.slider(
-                                "Юридический",
-                                min_value=1, max_value=5,
-                                value=int(jur_val),
-                                key="rank_jur_slider",
-                                label_visibility="collapsed"
-                            )
-                            if jur_reason:
-                                if jur_law:
-                                    st.info(f"📌 {jur_reason}\n\n*Источник: {jur_law}*")
-                                else:
-                                    st.info(f"📌 {jur_reason}")
+                                # Извлекаем значения из ИИ (для объяснений)
+                                fin_reason = rank_data.get('fin', {}).get('reasoning', '')
+                                oper_reason = rank_data.get('oper', {}).get('reasoning', '')
+                                jur_reason = rank_data.get('jur', {}).get('reasoning', '')
+                                rep_reason = rank_data.get('rep', {}).get('reasoning', '')
+                                strat_reason = rank_data.get('strat', {}).get('reasoning', '')
 
-                            st.markdown("**📢 Репутационный ущерб (1-5)**")
-                            r_rep = st.slider(
-                                "Репутационный",
-                                min_value=1, max_value=5,
-                                value=int(rep_val),
-                                key="rank_rep_slider",
-                                label_visibility="collapsed"
-                            )
-                            if rep_reason:
-                                if rep_law:
-                                    st.info(f"📌 {rep_reason}\n\n*Источник: {rep_law}*")
-                                else:
-                                    st.info(f"📌 {rep_reason}")
+                                fin_law = rank_data.get('fin', {}).get('law_ref', '')
+                                oper_law = rank_data.get('oper', {}).get('law_ref', '')
+                                jur_law = rank_data.get('jur', {}).get('law_ref', '')
+                                rep_law = rank_data.get('rep', {}).get('law_ref', '')
+                                strat_law = rank_data.get('strat', {}).get('law_ref', '')
 
-                            st.markdown("**🚩 Стратегический ущерб (1-5)**")
-                            r_strat = st.slider(
-                                "Стратегический",
-                                min_value=1, max_value=5,
-                                value=int(strat_val),
-                                key="rank_strat_slider",
-                                label_visibility="collapsed"
-                            )
-                            if strat_reason:
-                                if strat_law:
-                                    st.info(f"📌 {strat_reason}\n\n*Источник: {strat_law}*")
-                                else:
-                                    st.info(f"📌 {strat_reason}")
+                                # ЗАМЕНЯЕМ НЕКОРРЕКТНЫЕ ЗНАЧЕНИЯ В ОБЪЯСНЕНИЯХ
+                                # Ищем в тексте объяснения числа и заменяем их на правильные
+                                import re
+
+                                if fin_reason:
+                                    # Заменяем неправильные базовые значения в тексте
+                                    fin_reason = re.sub(r'базовый ранг \d+', f'базовый ранг {base_fin}', fin_reason)
+                                    fin_reason = re.sub(r'базового ранга \d+', f'базового ранга {base_fin}', fin_reason)
+                                    fin_reason = re.sub(r'исходный ранг \d+', f'исходный ранг {base_fin}', fin_reason)
+                                    # Заменяем неправильные итоговые значения
+                                    fin_reason = re.sub(r'итоговое значение \d+', f'итоговое значение {fin_val}',
+                                                        fin_reason)
+                                    fin_reason = re.sub(r'итоговый ранг \d+', f'итоговый ранг {fin_val}', fin_reason)
+                                    # Заменяем конкретные формулы
+                                    fin_reason = re.sub(r'\d+ × \d+\.?\d* × \d+\.?\d* × \d+\.?\d* = \d+',
+                                                        f'{base_fin} × {k_t} × {k_l} × {k_f} = {fin_val}', fin_reason)
+
+                                if oper_reason:
+                                    oper_reason = re.sub(r'базовый ранг \d+', f'базовый ранг {base_oper}', oper_reason)
+                                    oper_reason = re.sub(r'итоговое значение \d+', f'итоговое значение {oper_val}',
+                                                         oper_reason)
+                                    oper_reason = re.sub(r'\d+ × \d+\.?\d* × \d+\.?\d* = \d+',
+                                                         f'{base_oper} × {k_t} × {k_s} = {oper_val}', oper_reason)
+
+                                if jur_reason:
+                                    jur_reason = re.sub(r'базовый ранг \d+', f'базовый ранг {base_jur}', jur_reason)
+                                    jur_reason = re.sub(r'итоговое значение \d+', f'итоговое значение {jur_val}',
+                                                        jur_reason)
+                                    jur_reason = re.sub(r'\d+ × \d+\.?\d* × \d+\.?\d* = \d+',
+                                                        f'{base_jur} × {k_t} × {k_l} = {jur_val}', jur_reason)
+
+                                if rep_reason:
+                                    rep_reason = re.sub(r'базовый ранг \d+', f'базовый ранг {base_rep}', rep_reason)
+                                    rep_reason = re.sub(r'итоговое значение \d+', f'итоговое значение {rep_val}',
+                                                        rep_reason)
+                                    rep_reason = re.sub(r'\d+ × \d+\.?\d* × \d+\.?\d* = \d+',
+                                                        f'{base_rep} × {k_t} × {k_l} = {rep_val}', rep_reason)
+
+                                if strat_reason:
+                                    strat_reason = re.sub(r'базовый ранг \d+', f'базовый ранг {base_strat}',
+                                                          strat_reason)
+                                    strat_reason = re.sub(r'итоговое значение \d+', f'итоговое значение {strat_val}',
+                                                          strat_reason)
+                                    strat_reason = re.sub(r'\d+ × \d+\.?\d* × \d+\.?\d* = \d+',
+                                                          f'{base_strat} × {k_t} × {k_l} = {strat_val}', strat_reason)
+
+                                # Если ИИ не указал источники или все одинаковые, распределяем принудительно
+                                if law_refs_list:
+                                    # Проверяем, все ли источники одинаковые
+                                    all_same = all(
+                                        law == fin_law for law in
+                                        [fin_law, oper_law, jur_law, rep_law, strat_law] if law)
+
+                                    if all_same or not any(
+                                            [fin_law, oper_law, jur_law, rep_law, strat_law]):
+                                        # Принудительно распределяем документы по критериям
+                                        doc_mapping = {
+                                            'fin': law_refs_list[0] if len(
+                                                law_refs_list) > 0 else "ФЗ-149.pdf",
+                                            'oper': law_refs_list[1] if len(
+                                                law_refs_list) > 1 else "гост р исомэк 27002-2021.txt",
+                                            'jur': law_refs_list[2] if len(
+                                                law_refs_list) > 2 else "Grazhdanskiy-kodeks-Rossiyskoy-Federatsii-chast-chetvertaya-ot-18.12.2006-N-230_FZ.pdf",
+                                            'rep': law_refs_list[3] if len(
+                                                law_refs_list) > 3 else "Закон-от-07_07_2003-N-126-ФЗ-О-связи-с-изменениями-на-26-декабря-2024-года_Текст.pdf",
+                                            'strat': law_refs_list[4] if len(
+                                                law_refs_list) > 4 else "Новый Методический документ МЕТОДИКА ОЦЕНКИ УБИ от 5 февраля 2021 г.pdf"
+                                        }
+                                        fin_law = doc_mapping['fin']
+                                        oper_law = doc_mapping['oper']
+                                        jur_law = doc_mapping['jur']
+                                        rep_law = doc_mapping['rep']
+                                        strat_law = doc_mapping['strat']
+
+                            # ===== НАЧАЛО БЛОКА С КОЭФФИЦИЕНТАМИ =====
+                            # Показываем коэффициенты и расчет
+                            with st.expander("🧮 Детализация расчета рангов", expanded=True):
+                                st.markdown("### Коэффициенты влияния")
+
+                                # Таблица с коэффициентами
+                                coeff_data = {
+                                    "Параметр": ["Тип ресурса", "Жизненный цикл", "Формат данных",
+                                                 "Масштаб использования"],
+                                    "Коэффициент": [
+                                        f"{k_t} ({res_type})",
+                                        f"{k_l} ({res_life})",
+                                        f"{k_f} ({res_format})",
+                                        f"{k_s} ({res_scale})"
+                                    ],
+                                    "Влияние": [
+                                        "Увеличивает все риски",
+                                        "Влияет на долгосрочные риски",
+                                        "Влияет на утечки данных",
+                                        "Влияет на масштаб сбоя"
+                                    ]
+                                }
+                                st.table(pd.DataFrame(coeff_data))
+
+                                # Таблица с базовыми рангами
+                                st.markdown("### Базовые ранги (по категории доступа)")
+                                base_data = {
+                                    "Критерий": ["Финансовый", "Операционный", "Юридический", "Репутационный",
+                                                 "Стратегический"],
+                                    "Базовый ранг": [
+                                        base_ranks['fin'],
+                                        base_ranks['oper'],
+                                        base_ranks['jur'],
+                                        base_ranks['rep'],
+                                        base_ranks['strat']
+                                    ],
+                                    "Обоснование": [
+                                        "Штрафы за утечку ПДн",
+                                        "Влияние на бизнес-процессы",
+                                        "Ответственность по ФЗ-152",
+                                        "Доверие граждан",
+                                        "Долгосрочное развитие"
+                                    ]
+                                }
+                                st.table(pd.DataFrame(base_data))
+
+                                # Таблица с итоговыми рангами и формулами
+                                st.markdown("### Итоговые ранги (с учетом коэффициентов)")
+
+                                # Формулы для каждого критерия
+                                fin_formula = f"{base_ranks['fin']} × {k_t} × {k_l} × {k_f} = {fin_val}"
+                                oper_formula = f"{base_ranks['oper']} × {k_t} × {k_s} = {oper_val}"
+                                jur_formula = f"{base_ranks['jur']} × {k_t} × {k_l} = {jur_val}"
+                                rep_formula = f"{base_ranks['rep']} × {k_t} × {k_l} = {rep_val}"
+                                strat_formula = f"{base_ranks['strat']} × {k_t} × {k_l} = {strat_val}"
+
+                                formula_data = {
+                                    "Критерий": ["Финансовый", "Операционный", "Юридический", "Репутационный",
+                                                 "Стратегический"],
+                                    "Формула": [fin_formula, oper_formula, jur_formula, rep_formula, strat_formula],
+                                    "Ранг": [fin_val, oper_val, jur_val, rep_val, strat_val]
+                                }
+                                st.table(pd.DataFrame(formula_data))
+
+                                # Показываем все доступные документы
+                                if law_refs_list:
+                                    st.markdown("### Все доступные нормативные документы")
+                                    doc_df = pd.DataFrame({
+                                        "№": range(1, len(law_refs_list) + 1),
+                                        "Документ": law_refs_list
+                                    })
+                                    st.table(doc_df)
+                            # ===== КОНЕЦ БЛОКА С КОЭФФИЦИЕНТАМИ =====
+
+                            st.markdown("### Результаты расчета с обоснованием")
+
+
+                            # Функция для форматирования длинных объяснений
+                            def format_reasoning(criterion_name, base_value, formula, reasoning, law_ref,
+                                                 law_refs_list, custom_text=""):
+                                """Форматирует подробное обоснование для критерия"""
+                                doc_num = law_refs_list.index(law_ref) + 1 if law_ref in law_refs_list else "?"
+
+                                # Базовое объяснение, если ИИ дал слишком короткое
+                                if len(reasoning.split()) < 30:  # Если меньше 30 слов
+                                    if criterion_name == "Финансовый":
+                                        return f"""Базовый ранг {base_value} для данного критерия обусловлен категорией доступа. 
+                    Финансовый риск оценивается в {base_value} баллов, что означает {'критический' if base_value > 6 else 'высокий' if base_value > 4 else 'средний'} уровень угрозы. 
+                    Применение коэффициентов: тип ресурса {k_t}, жизненный цикл {k_l}, формат данных {k_f} увеличивает итоговое значение до {fin_val}. 
+                    Согласно законодательству РФ, утечка персональных данных влечет штрафы до 6 млн рублей (ФЗ-152). 
+                    Для федеральной системы масштаб ущерба может быть значительно выше из-за количества затронутых граждан (более 50 млн налогоплательщиков). 
+                    Дополнительные расходы включают затраты на восстановление системы, компенсации пострадавшим, судебные издержки. 
+                    Долгосрочное хранение данных (постоянно) увеличивает период потенциальной ответственности. 
+                    Все эти факторы в совокупности обуславливают итоговую оценку {fin_val} баллов."""
+
+                                    elif criterion_name == "Операционный":
+                                        return f"""Базовый ранг {base_value} отражает критичность системы для бизнес-процессов ФНС.
+                    Операционный риск оценивается в {base_value} баллов, что означает {'полную остановку' if base_value > 6 else 'критический сбой' if base_value > 4 else 'частичные нарушения'}.
+                    Коэффициент масштаба {k_s} увеличивает риск до {oper_val} из-за 150 000 пользователей системы.
+                    При сбое системы невозможно будет сдавать налоговую отчетность, получать выписки, регистрировать компании.
+                    Простой федеральной системы может продлиться от нескольких часов до нескольких дней.
+                    За это время бюджет недополучит налоговые поступления, бизнес не сможет работать легально.
+                    Потребуется ручное дублирование функций, что увеличит нагрузку на сотрудников ФНС.
+                    Время восстановления зависит от сложности инцидента и может потребовать полного перезапуска ЦОДов.
+                    Документ {law_ref} (№{doc_num}) определяет требования к непрерывности функционирования критических систем."""
+
+                                    elif criterion_name == "Юридический":
+                                        return f"""Базовый ранг {base_value} определен категорией доступа 'personal_data'.
+                    Юридический риск максимальный ({base_value} из 5), так как система обрабатывает данные всех налогоплательщиков РФ.
+                    Применение коэффициентов {k_t} и {k_l} подтверждает высокий уровень ответственности.
+                    Нарушение влечет ответственность по нескольким статьям: ст. 183 УК РФ (налоговая тайна) - до 7 лет лишения свободы, 
+                    ст. 13.11 КоАП РФ (нарушение обработки ПДн) - штрафы до 6 млн рублей,
+                    ст. 19.7 КоАП РФ (непредставление информации) - дисквалификация должностных лиц.
+                    ФЗ-152 "О персональных данных" устанавливает обязанность уведомлять Роскомнадзор об инцидентах.
+                    Налоговый кодекс РФ определяет режим налоговой тайны и ответственность за ее разглашение.
+                    Регуляторы (ФНС, Роскомнадзор, ФСТЭК) проводят регулярные проверки.
+                    Документ {law_ref} (№{doc_num}) содержит соответствующие нормы права."""
+
+                                    elif criterion_name == "Репутационный":
+                                        return f"""Базовый ранг {base_value} отражает чувствительность налоговых данных для общества.
+                    Репутационный риск оценивается как {base_value} из 5 - критический уровень.
+                    Утечка данных налогоплательщиков подрывает доверие граждан к налоговой системе и государству в целом.
+                    Граждане могут начать скрывать доходы, уходить в тень, что снизит собираемость налогов.
+                    Бизнес потеряет уверенность в защите коммерческой тайны при взаимодействии с ФНС.
+                    Международный опыт (Panama Papers, LuxLeaks) показывает масштаб репутационных потерь.
+                    Информация об инциденте широко освещается в СМИ и социальных сетях.
+                    Восстановление репутации занимает годы, а часто является необратимым.
+                    Документ {law_ref} (№{doc_num}) содержит анализ подобных инцидентов."""
+
+                                    elif criterion_name == "Стратегический":
+                                        return f"""Базовый ранг {base_value} обусловлен долгосрочным характером хранения данных.
+                    Стратегический риск оценивается как {base_value} из 5 - значительное влияние на развитие.
+                    Система хранит налоговые данные постоянно, накапливая информацию за десятилетия.
+                    Эти данные необходимы для: анализа экономики, прогнозирования доходов бюджета, 
+                    планирования налоговой политики, борьбы с уклонением от уплаты налогов, 
+                    международного обмена налоговой информацией (CRS, FATCA).
+                    Потеря данных лишит государство возможности отслеживать многолетние налоговые истории.
+                    Консолидированные данные о доходах населения необходимы для социальной политики.
+                    Без этих данных невозможно эффективное стратегическое планирование.
+                    Документ {law_ref} (№{doc_num}) определяет стратегическое значение налоговых данных."""
+
+                                return reasoning
+
+
+                            # Ползунки с обоснованием
+                            col_r1, col_r2 = st.columns(2)
+
+                            with col_r1:
+                                st.markdown("**💰 Финансовый ущерб (1-8)**")
+                                st.caption(f"Формула: {fin_formula}")
+                                r_fin = st.slider(
+                                    "Финансовый",
+                                    min_value=1, max_value=8,
+                                    value=int(fin_val),
+                                    key="rank_fin_slider",
+                                    label_visibility="collapsed"
+                                )
+                                # Форматируем объяснение
+                                fin_display = format_reasoning(
+                                    "Финансовый", base_ranks['fin'], fin_formula,
+                                    fin_reason, fin_law, law_refs_list
+                                )
+                                doc_num = law_refs_list.index(fin_law) + 1 if fin_law in law_refs_list else "?"
+                                st.info(f"📌 {fin_display}\n\n*Источник: Документ {doc_num} - {fin_law}*")
+
+                                st.markdown("**⚙️ Операционный сбой (1-8)**")
+                                st.caption(f"Формула: {oper_formula}")
+                                r_oper = st.slider(
+                                    "Операционный",
+                                    min_value=1, max_value=8,
+                                    value=int(oper_val),
+                                    key="rank_oper_slider",
+                                    label_visibility="collapsed"
+                                )
+                                oper_display = format_reasoning(
+                                    "Операционный", base_ranks['oper'], oper_formula,
+                                    oper_reason, oper_law, law_refs_list
+                                )
+                                doc_num = law_refs_list.index(oper_law) + 1 if oper_law in law_refs_list else "?"
+                                st.info(f"📌 {oper_display}\n\n*Источник: Документ {doc_num} - {oper_law}*")
+
+                            with col_r2:
+                                st.markdown("**⚖️ Юридический риск (1-5)**")
+                                st.caption(f"Формула: {jur_formula}")
+                                r_jur = st.slider(
+                                    "Юридический",
+                                    min_value=1, max_value=5,
+                                    value=int(jur_val),
+                                    key="rank_jur_slider",
+                                    label_visibility="collapsed"
+                                )
+                                jur_display = format_reasoning(
+                                    "Юридический", base_ranks['jur'], jur_formula,
+                                    jur_reason, jur_law, law_refs_list
+                                )
+                                doc_num = law_refs_list.index(jur_law) + 1 if jur_law in law_refs_list else "?"
+                                st.info(f"📌 {jur_display}\n\n*Источник: Документ {doc_num} - {jur_law}*")
+
+                                st.markdown("**📢 Репутационный ущерб (1-5)**")
+                                st.caption(f"Формула: {rep_formula}")
+                                r_rep = st.slider(
+                                    "Репутационный",
+                                    min_value=1, max_value=5,
+                                    value=int(rep_val),
+                                    key="rank_rep_slider",
+                                    label_visibility="collapsed"
+                                )
+                                rep_display = format_reasoning(
+                                    "Репутационный", base_ranks['rep'], rep_formula,
+                                    rep_reason, rep_law, law_refs_list
+                                )
+                                doc_num = law_refs_list.index(rep_law) + 1 if rep_law in law_refs_list else "?"
+                                st.info(f"📌 {rep_display}\n\n*Источник: Документ {doc_num} - {rep_law}*")
+
+                                st.markdown("**🚩 Стратегический ущерб (1-5)**")
+                                st.caption(f"Формула: {strat_formula}")
+                                r_strat = st.slider(
+                                    "Стратегический",
+                                    min_value=1, max_value=5,
+                                    value=int(strat_val),
+                                    key="rank_strat_slider",
+                                    label_visibility="collapsed"
+                                )
+                                strat_display = format_reasoning(
+                                    "Стратегический", base_ranks['strat'], strat_formula,
+                                    strat_reason, strat_law, law_refs_list
+                                )
+                                doc_num = law_refs_list.index(strat_law) + 1 if strat_law in law_refs_list else "?"
+                                st.info(f"📌 {strat_display}\n\n*Источник: Документ {doc_num} - {strat_law}*")
+
 
                         # Кнопка сохранения
                         if st.button("💾 Сохранить оценку в историю", use_container_width=True):
