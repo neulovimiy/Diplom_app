@@ -1,4 +1,4 @@
-# app.py
+# app.py (ПОЛНАЯ ФИНАЛЬНАЯ ВЕРСИЯ)
 import streamlit as st
 import pandas as pd
 import json
@@ -8,6 +8,7 @@ import modules.ai_analyst as ai
 import database as db
 import logic
 
+# Настройка страницы
 st.set_page_config(
     page_title="СППР Оценка динамики ценности ИР",
     page_icon="🛡️",
@@ -15,59 +16,44 @@ st.set_page_config(
 )
 
 
-# Инициализация состояния сессии
+# ============================================================================
+# ИНИЦИАЛИЗАЦИЯ СОСТОЯНИЯ СЕССИИ
+# ============================================================================
 def init_session_state():
     """Инициализация всех переменных состояния сессии"""
+
+    # Состояние для вкладки 1
     if "ai_suggestions" not in st.session_state:
         st.session_state.ai_suggestions = None
-    if "ai_incident_suggestions" not in st.session_state:
-        st.session_state.ai_incident_suggestions = None
+    if "ai_law_refs" not in st.session_state:
+        st.session_state.ai_law_refs = []
+    if "ai_summary" not in st.session_state:
+        st.session_state.ai_summary = ""
     if "resource_saved" not in st.session_state:
         st.session_state.resource_saved = False
     if "current_resource_id" not in st.session_state:
         st.session_state.current_resource_id = None
-    if "show_rank_analysis" not in st.session_state:
-        st.session_state.show_rank_analysis = False
-    if "analysis_completed" not in st.session_state:
-        st.session_state.analysis_completed = False
-    if "analysis_triggered" not in st.session_state:
-        st.session_state.analysis_triggered = False
-    if "rank_analysis_result" not in st.session_state:
-        st.session_state.rank_analysis_result = None
-    if "calculated_ranks" not in st.session_state:
-        st.session_state.calculated_ranks = None
-    # Новые переменные для загрузки ресурса из базы
-    if "show_loaded_analysis" not in st.session_state:
-        st.session_state.show_loaded_analysis = False
-    if "analyze_resource_id" not in st.session_state:
-        st.session_state.analyze_resource_id = None
-    if "analyze_resource_name" not in st.session_state:
-        st.session_state.analyze_resource_name = None
-    if "analyze_resource_desc" not in st.session_state:
-        st.session_state.analyze_resource_desc = None
-    if "analyze_resource_category" not in st.session_state:
-        st.session_state.analyze_resource_category = None
-    if "analyze_resource_type" not in st.session_state:
-        st.session_state.analyze_resource_type = None
-    if "analyze_resource_lifecycle" not in st.session_state:
-        st.session_state.analyze_resource_lifecycle = None
-    if "analyze_resource_format" not in st.session_state:
-        st.session_state.analyze_resource_format = None
-    if "analyze_resource_scale" not in st.session_state:
-        st.session_state.analyze_resource_scale = None
-    # Переменная для хранения выбранного ресурса на вкладке 2
-    if "selected_resource_for_analysis" not in st.session_state:
-        st.session_state.selected_resource_for_analysis = None
-    # Переменная для сохранения рассчитанных рангов
-    if "calculated_ranks_for_save" not in st.session_state:
-        st.session_state.calculated_ranks_for_save = None
-    if "current_resource_for_save" not in st.session_state:
-        st.session_state.current_resource_for_save = None
+
+        # Состояние для вкладки 2
+        if "selected_resource_for_analysis" not in st.session_state:
+            st.session_state.selected_resource_for_analysis = None
+        if "calculation_explanation" not in st.session_state:
+            st.session_state.calculation_explanation = None
+        if "current_calculation" not in st.session_state:
+            st.session_state.current_calculation = None
+        if "calculation_result" not in st.session_state:  # ← добавить эту строку
+            st.session_state.calculation_result = None
+
+    # Состояние для вкладки 3
+    if "incident_analysis" not in st.session_state:
+        st.session_state.incident_analysis = None
 
 
 init_session_state()
 
-# Словари для перевода на русский
+# ============================================================================
+# СЛОВАРИ ДЛЯ ПЕРЕВОДА (ВСЕ ПАРАМЕТРЫ)
+# ============================================================================
 RUSSIAN_ACCESS = {
     "public": "📢 Общедоступная",
     "internal": "🏢 Внутренняя (ДСП)",
@@ -78,20 +64,24 @@ RUSSIAN_ACCESS = {
 }
 
 RUSSIAN_TYPE = {
+    "unknown": "❓ Неизвестно",
     "software": "💻 Программное обеспечение",
     "database": "🗄️ База данных",
     "financial": "💰 Финансовая отчетность",
     "document": "📄 Текстовая документация",
+    "config": "⚙️ Конфигурационные файлы",
     "media": "🎬 Мультимедиа"
 }
 
 RUSSIAN_LIFE = {
+    "unknown": "❓ Неизвестно",
     "short_term": "⏱️ Краткосрочный (дни/месяцы)",
     "medium_term": "📅 Среднесрочный (до 1 года)",
     "long_term": "📆 Долгосрочный (более 1 года)"
 }
 
 RUSSIAN_FORMAT = {
+    "unknown": "❓ Неизвестно",
     "structured": "🗂️ Структурированные (БД/JSON)",
     "source_code": "👨‍💻 Исходный код",
     "text": "📝 Текстовые документы",
@@ -100,9 +90,45 @@ RUSSIAN_FORMAT = {
 }
 
 RUSSIAN_SCALE = {
-    "local": "👤 Локальный (единицы людей)",
+    "unknown": "❓ Неизвестно",
+    "local": "👤 Локальный",
     "department": "👥 Уровень отдела",
     "enterprise": "🏭 Масштаб предприятия"
+}
+
+# НОВЫЕ ПАРАМЕТРЫ
+RUSSIAN_CONFIDENTIALITY = {
+    "unknown": "❓ Неизвестно",
+    "open": "🔓 Открытая информация",
+    "internal": "🏢 Для внутреннего пользования",
+    "confidential": "🔒 Конфиденциально",
+    "secret": "⚡ Секретно",
+    "top_secret": "🛡️ Особой важности"
+}
+
+RUSSIAN_USERS = {
+    "unknown": "❓ Неизвестно",
+    "1-10": "👤 1-10 пользователей",
+    "11-100": "👥 11-100 пользователей",
+    "101-1000": "👥👥 101-1000 пользователей",
+    "1001-10000": "🏢 1001-10000 пользователей",
+    "10000+": "🌐 Более 10000 пользователей"
+}
+
+RUSSIAN_CRITICALITY = {
+    "unknown": "❓ Неизвестно",
+    "low": "🟢 Низкая",
+    "medium": "🟡 Средняя",
+    "high": "🟠 Высокая",
+    "critical": "🔴 Критическая"
+}
+
+RUSSIAN_BACKUP = {
+    "unknown": "❓ Неизвестно",
+    "daily": "✅ Ежедневный",
+    "weekly": "📅 Еженедельный",
+    "monthly": "📆 Ежемесячный",
+    "none": "❌ Отсутствует"
 }
 
 # Обратные словари для преобразования русских названий в ключи
@@ -111,34 +137,51 @@ REVERSE_TYPE = {v: k for k, v in RUSSIAN_TYPE.items()}
 REVERSE_LIFE = {v: k for k, v in RUSSIAN_LIFE.items()}
 REVERSE_FORMAT = {v: k for k, v in RUSSIAN_FORMAT.items()}
 REVERSE_SCALE = {v: k for k, v in RUSSIAN_SCALE.items()}
+REVERSE_CONFIDENTIALITY = {v: k for k, v in RUSSIAN_CONFIDENTIALITY.items()}
+REVERSE_USERS = {v: k for k, v in RUSSIAN_USERS.items()}
+REVERSE_CRITICALITY = {v: k for k, v in RUSSIAN_CRITICALITY.items()}
+REVERSE_BACKUP = {v: k for k, v in RUSSIAN_BACKUP.items()}
 
-# Заголовок приложения
+# ============================================================================
+# ЗАГОЛОВОК И ОПИСАНИЕ МЕТОДИКИ
+# ============================================================================
 st.title("🛡️ Система поддержки принятия решений для оценки динамики ценности информационных ресурсов")
 st.markdown("---")
 
-# Описание методики (важно для ВКР!)
-with st.expander("📚 О методике оценки (НИР Глава 4)", expanded=False):
+with st.expander("📚 О методике оценки (Глава 7)", expanded=False):
     st.markdown("""
     ### Математическая модель оценки ценности ИР
 
     **Формула расчета частного ранга:**
-    $R_{критерий} = R_{base} \\times K_{type} \\times K_{life} \\times K_{format} \\times K_{scale}$
+    $R_{критерий} = R_{base} \\times \\prod K_i$
 
-    **Группа А (Критические критерии, шкала 1-8):**
+    **Группа А (Критические критерии, шкала 1-10):**
     - **Финансовый ущерб (fin)** - прямые и косвенные потери
     - **Операционный сбой (oper)** - влияние на бизнес-процессы
 
-    **Группа Б (Качественные критерии, шкала 1-5):**
+    **Группа Б (Качественные критерии, шкала 1-8):**
     - **Юридический риск (jur)** - ответственность по НПА
     - **Репутационный ущерб (rep)** - имиджевые потери
     - **Стратегический ущерб (strat)** - влияние на развитие
 
+    **Коэффициенты влияния:**
+    - Тип ресурса (K_type): 1.0-1.25
+    - Жизненный цикл (K_life): 1.0-1.20
+    - Формат данных (K_format): 1.0-1.25
+    - Масштаб (K_scale): 1.0-1.20
+    - Конфиденциальность (K_conf): 1.0-1.40
+    - Количество пользователей (K_users): 1.0-1.20
+    - Критичность для бизнеса (K_business): 1.0-1.30
+    - Резервное копирование (K_backup): 0.9-1.20
+
     **Нормализация:** $S_{критерий} = \\frac{R_{факт} - 1}{R_{max} - 1}$
 
-    **Итоговый ранг ценности** определяется по интегральной сумме $S_\\Sigma$
+    **Итоговый ранг ценности** (1-9) определяется по интегральной сумме $S_\\Sigma$
     """)
 
-# Основные вкладки - НОВАЯ СТРУКТУРА
+# ============================================================================
+# ОСНОВНЫЕ ВКЛАДКИ
+# ============================================================================
 tab1, tab2, tab3, tab4 = st.tabs([
     "📝 1. Регистрация и базовая оценка",
     "📊 2. Анализ ранга сохраненного ресурса",
@@ -147,27 +190,26 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 # ============================================================================
-# ВКЛАДКА 1: РЕГИСТРАЦИЯ И БАЗОВАЯ ОЦЕНКА
+# ВКЛАДКА 1: РЕГИСТРАЦИЯ НОВОГО РЕСУРСА
 # ============================================================================
 with tab1:
     st.header("Регистрация нового информационного ресурса")
 
-    # Основные колонки для ввода
+    # Основная информация
     col1, col2 = st.columns([1, 1])
 
     with col1:
         st.subheader("📋 Исходные данные")
 
-        # Основная информация
         resource_name = st.text_input(
             "Название ресурса *",
-            placeholder="Например: Патент на изобретение",
+            placeholder="Например: Медицинская информационная система",
             key="input_name"
         )
 
         resource_desc = st.text_area(
             "Описание ресурса",
-            placeholder="Опишите назначение, содержание, кто работает с ресурсом, срок хранения, формат данных...",
+            placeholder="Опишите назначение, содержание, кто работает с ресурсом, срок хранения, формат данных, количество пользователей...",
             height=200,
             key="input_desc"
         )
@@ -176,7 +218,7 @@ with tab1:
         col_ai_btn, col_ai_status = st.columns([1, 2])
         with col_ai_btn:
             ai_request_btn = st.button(
-                "🤖 Запросить анализ ИИ",
+                "🤖 Запросить рекомендации ИИ",
                 type="secondary",
                 use_container_width=True,
                 disabled=not (resource_name and resource_desc)
@@ -190,214 +232,336 @@ with tab1:
         # Обработка запроса к ИИ
         if ai_request_btn and resource_name and resource_desc:
             with st.spinner("🔍 ИИ анализирует описание и нормативные документы..."):
-                analysis = ai.get_ai_analysis(resource_name, resource_desc)
+                analysis = ai.suggest_parameters(resource_name, resource_desc)
 
                 if "error" not in analysis:
                     st.session_state.ai_suggestions = analysis.get("suggestions", {})
                     st.session_state.ai_law_refs = analysis.get("law_refs", [])
                     st.session_state.ai_summary = analysis.get("summary", "")
                     st.session_state.resource_saved = False
-                    st.session_state.show_rank_analysis = False
-                    st.session_state.analysis_triggered = False
                     st.rerun()
                 else:
                     st.error(f"Ошибка при анализе: {analysis['error']}")
 
-        # Отображение рекомендаций ИИ (если есть)
+
+        # Отображение рекомендаций ИИ (замените этот блок в app.py)
         if st.session_state.ai_suggestions:
             with st.expander("🤖 Рекомендации ИИ-ассистента", expanded=True):
-                st.markdown(f"**📝 Резюме:** {st.session_state.ai_summary}")
+                if st.session_state.ai_summary:
+                    st.markdown(f"**📝 Резюме:** {st.session_state.ai_summary}")
 
-                # Ссылки на документы
                 if st.session_state.ai_law_refs:
                     st.markdown("**📚 Нормативные документы:**")
-                    for ref in st.session_state.ai_law_refs:
+                    for ref in st.session_state.ai_law_refs[:5]:
                         if os.path.exists(f"sources/{ref}"):
                             st.markdown(f"- 📄 `{ref}`")
                         else:
                             st.markdown(f"- 📄 {ref}")
 
-                st.markdown("**💡 Рекомендации по категориям:**")
+                st.markdown("**💡 Рекомендации по всем 9 параметрам:**")
 
-                # Отображаем рекомендации для каждой категории
                 suggestions = st.session_state.ai_suggestions
 
-                # Категория доступа
-                if "access_category" in suggestions:
-                    acc = suggestions["access_category"]
-                    eng_value = acc.get('value', '—')
-                    rus_value = RUSSIAN_ACCESS.get(eng_value, eng_value)
-                    law_file = acc.get('law_file', '')
-                    law_text = f" (`{law_file}`)" if law_file and os.path.exists(f"sources/{law_file}") else ""
-                    st.info(f"**Доступ:** {rus_value}{law_text}  \n*{acc.get('reason', '')}*")
+                # Отображаем ВСЕ 9 параметров в две колонки
+                col_rec1, col_rec2 = st.columns(2)
 
-                # Тип ресурса
-                if "resource_type" in suggestions:
-                    rt = suggestions["resource_type"]
-                    eng_value = rt.get('value', '—')
-                    rus_value = RUSSIAN_TYPE.get(eng_value, eng_value)
-                    law_file = rt.get('law_file', '')
-                    law_text = f" (`{law_file}`)" if law_file and os.path.exists(f"sources/{law_file}") else ""
-                    st.info(f"**Тип:** {rus_value}{law_text}  \n*{rt.get('reason', '')}*")
+                with col_rec1:
+                    # Категория доступа
+                    if "access_category" in suggestions:
+                        acc = suggestions["access_category"]
+                        eng_value = acc.get('value', 'public')
+                        rus_value = RUSSIAN_ACCESS.get(eng_value, eng_value)
+                        st.info(f"**Доступ:** {rus_value}  \n*{acc.get('reason', '')}*")
 
-                # Жизненный цикл
-                if "lifecycle" in suggestions:
-                    lc = suggestions["lifecycle"]
-                    eng_value = lc.get('value', '—')
-                    rus_value = RUSSIAN_LIFE.get(eng_value, eng_value)
-                    law_file = lc.get('law_file', '')
-                    law_text = f" (`{law_file}`)" if law_file and os.path.exists(f"sources/{law_file}") else ""
-                    st.info(f"**Жизненный цикл:** {rus_value}{law_text}  \n*{lc.get('reason', '')}*")
+                    # Тип ресурса
+                    if "resource_type" in suggestions:
+                        rt = suggestions["resource_type"]
+                        eng_value = rt.get('value', 'unknown')
+                        rus_value = RUSSIAN_TYPE.get(eng_value, eng_value)
+                        st.info(f"**Тип:** {rus_value}  \n*{rt.get('reason', '')}*")
 
-                # Формат данных
-                if "data_format" in suggestions:
-                    df = suggestions["data_format"]
-                    eng_value = df.get('value', '—')
-                    rus_value = RUSSIAN_FORMAT.get(eng_value, eng_value)
-                    law_file = df.get('law_file', '')
-                    law_text = f" (`{law_file}`)" if law_file and os.path.exists(f"sources/{law_file}") else ""
-                    st.info(f"**Формат:** {rus_value}{law_text}  \n*{df.get('reason', '')}*")
+                    # Жизненный цикл
+                    if "lifecycle" in suggestions:
+                        lc = suggestions["lifecycle"]
+                        eng_value = lc.get('value', 'unknown')
+                        rus_value = RUSSIAN_LIFE.get(eng_value, eng_value)
+                        st.info(f"**Жизненный цикл:** {rus_value}  \n*{lc.get('reason', '')}*")
 
-                # Масштаб использования
-                if "usage_scale" in suggestions:
-                    us = suggestions["usage_scale"]
-                    eng_value = us.get('value', '—')
-                    rus_value = RUSSIAN_SCALE.get(eng_value, eng_value)
-                    law_file = us.get('law_file', '')
-                    law_text = f" (`{law_file}`)" if law_file and os.path.exists(f"sources/{law_file}") else ""
-                    st.info(f"**Масштаб:** {rus_value}{law_text}  \n*{us.get('reason', '')}*")
+                    # Формат данных
+                    if "data_format" in suggestions:
+                        df = suggestions["data_format"]
+                        eng_value = df.get('value', 'unknown')
+                        rus_value = RUSSIAN_FORMAT.get(eng_value, eng_value)
+                        st.info(f"**Формат:** {rus_value}  \n*{df.get('reason', '')}*")
+                        # Масштаб использования
+                    if "usage_scale" in suggestions:
+                            us = suggestions["usage_scale"]
+                            eng_value = us.get('value', 'unknown')
+                            rus_value = RUSSIAN_SCALE.get(eng_value, eng_value)
+                            st.info(f"**Масштаб:** {rus_value}  \n*{us.get('reason', '')}*")
+
+                with col_rec2:
+
+
+                    # Конфиденциальность
+                    if "confidentiality" in suggestions:
+                        conf = suggestions["confidentiality"]
+                        eng_value = conf.get('value', 'unknown')
+                        rus_value = RUSSIAN_CONFIDENTIALITY.get(eng_value, eng_value)
+                        st.info(f"**Конфиденциальность:** {rus_value}  \n*{conf.get('reason', '')}*")
+
+                    # Количество пользователей
+                    if "users_count" in suggestions:
+                        users = suggestions["users_count"]
+                        eng_value = users.get('value', 'unknown')
+                        rus_value = RUSSIAN_USERS.get(eng_value, eng_value)
+                        st.info(f"**Пользователей:** {rus_value}  \n*{users.get('reason', '')}*")
+
+                    # Критичность для бизнеса
+                    if "business_criticality" in suggestions:
+                        crit = suggestions["business_criticality"]
+                        eng_value = crit.get('value', 'unknown')
+                        rus_value = RUSSIAN_CRITICALITY.get(eng_value, eng_value)
+                        st.info(f"**Критичность:** {rus_value}  \n*{crit.get('reason', '')}*")
+
+                    # Резервное копирование
+                    if "backup" in suggestions:
+                        backup = suggestions["backup"]
+                        eng_value = backup.get('value', 'unknown')
+                        rus_value = RUSSIAN_BACKUP.get(eng_value, eng_value)
+                        st.info(f"**Бэкап:** {rus_value}  \n*{backup.get('reason', '')}*")
 
     with col2:
-        st.subheader("⚙️ Параметры классификации (решение эксперта)")
+        st.subheader("⚙️ Параметры классификации")
 
-        # Получаем значения из session_state или устанавливаем по умолчанию
-        if "sel_access" not in st.session_state:
-            st.session_state.sel_access = list(RUSSIAN_ACCESS.keys()).index("public")
-        if "sel_type" not in st.session_state:
-            st.session_state.sel_type = list(RUSSIAN_TYPE.keys()).index("document")
-        if "sel_life" not in st.session_state:
-            st.session_state.sel_life = list(RUSSIAN_LIFE.keys()).index("medium_term")
-        if "sel_format" not in st.session_state:
-            st.session_state.sel_format = list(RUSSIAN_FORMAT.keys()).index("text")
-        if "sel_scale" not in st.session_state:
-            st.session_state.sel_scale = list(RUSSIAN_SCALE.keys()).index("department")
+        # Получаем рекомендованные значения из ИИ
+        suggested_access = None
+        suggested_type = None
+        suggested_life = None
+        suggested_format = None
+        suggested_scale = None
+        suggested_conf = None
+        suggested_users = None
+        suggested_crit = None
+        suggested_backup = None
 
-        # Элементы ввода для эксперта с использованием session_state
-        sel_access = st.selectbox(
-            "Категория доступа",
-            options=list(RUSSIAN_ACCESS.keys()),
-            format_func=lambda x: RUSSIAN_ACCESS[x],
-            index=st.session_state.sel_access,
-            key="expert_access",
-            help="Определяет базовый уровень риска согласно законодательству РФ"
-        )
-        st.session_state.sel_access = list(RUSSIAN_ACCESS.keys()).index(sel_access)
+        # Получаем рекомендованные значения из ИИ (замените этот блок)
+        if st.session_state.ai_suggestions:
+            suggested_access = st.session_state.ai_suggestions.get("access_category", {}).get("value")
+            suggested_type = st.session_state.ai_suggestions.get("resource_type", {}).get("value")
+            suggested_life = st.session_state.ai_suggestions.get("lifecycle", {}).get("value")
+            suggested_format = st.session_state.ai_suggestions.get("data_format", {}).get("value")
+            suggested_scale = st.session_state.ai_suggestions.get("usage_scale", {}).get("value")
+            suggested_conf = st.session_state.ai_suggestions.get("confidentiality", {}).get("value")
+            suggested_users = st.session_state.ai_suggestions.get("users_count", {}).get("value")
+            suggested_crit = st.session_state.ai_suggestions.get("business_criticality", {}).get("value")
+            suggested_backup = st.session_state.ai_suggestions.get("backup", {}).get("value")
 
-        sel_type = st.selectbox(
-            "Тип ресурса",
-            options=list(RUSSIAN_TYPE.keys()),
-            format_func=lambda x: RUSSIAN_TYPE[x],
-            index=st.session_state.sel_type,
-            key="expert_type",
-            help="Влияет на сложность восстановления и критичность"
-        )
-        st.session_state.sel_type = list(RUSSIAN_TYPE.keys()).index(sel_type)
+        # Основные параметры
+        st.markdown("**Основные параметры:**")
 
-        sel_life = st.selectbox(
-            "Жизненный цикл",
-            options=list(RUSSIAN_LIFE.keys()),
-            format_func=lambda x: RUSSIAN_LIFE[x],
-            index=st.session_state.sel_life,
-            key="expert_life",
-            help="Определяет период актуальности информации"
-        )
-        st.session_state.sel_life = list(RUSSIAN_LIFE.keys()).index(sel_life)
+        col_a1, col_a2 = st.columns(2)
 
-        sel_format = st.selectbox(
-            "Формат данных",
-            options=list(RUSSIAN_FORMAT.keys()),
-            format_func=lambda x: RUSSIAN_FORMAT[x],
-            index=st.session_state.sel_format,
-            key="expert_format",
-            help="Влияет на возможности утечки и восстановления"
-        )
-        st.session_state.sel_format = list(RUSSIAN_FORMAT.keys()).index(sel_format)
+        with col_a1:
+            # Категория доступа
+            access_options = list(RUSSIAN_ACCESS.keys())
+            default_idx = 0
+            if suggested_access and suggested_access in access_options:
+                default_idx = access_options.index(suggested_access)
 
-        sel_scale = st.selectbox(
-            "Масштаб использования",
-            options=list(RUSSIAN_SCALE.keys()),
-            format_func=lambda x: RUSSIAN_SCALE[x],
-            index=st.session_state.sel_scale,
-            key="expert_scale",
-            help="Определяет широту воздействия при инцидентах"
-        )
-        st.session_state.sel_scale = list(RUSSIAN_SCALE.keys()).index(sel_scale)
+            sel_access = st.selectbox(
+                "Категория доступа *",
+                options=access_options,
+                format_func=lambda x: RUSSIAN_ACCESS[x],
+                index=default_idx,
+                key="expert_access"
+            )
 
-        # Кнопка сохранения ресурса
-        col_save1, col_save2 = st.columns(2)
-        with col_save1:
+            # Тип ресурса
+            type_options = list(RUSSIAN_TYPE.keys())
+            default_idx = 0
+            if suggested_type and suggested_type in type_options:
+                default_idx = type_options.index(suggested_type)
+
+            sel_type = st.selectbox(
+                "Тип ресурса *",
+                options=type_options,
+                format_func=lambda x: RUSSIAN_TYPE[x],
+                index=default_idx,
+                key="expert_type"
+            )
+
+            # Жизненный цикл
+            life_options = list(RUSSIAN_LIFE.keys())
+            default_idx = 0
+            if suggested_life and suggested_life in life_options:
+                default_idx = life_options.index(suggested_life)
+
+            sel_life = st.selectbox(
+                "Жизненный цикл *",
+                options=life_options,
+                format_func=lambda x: RUSSIAN_LIFE[x],
+                index=default_idx,
+                key="expert_life"
+            )
+
+        with col_a2:
+            # Формат данных
+            format_options = list(RUSSIAN_FORMAT.keys())
+            default_idx = 0
+            if suggested_format and suggested_format in format_options:
+                default_idx = format_options.index(suggested_format)
+
+            sel_format = st.selectbox(
+                "Формат данных *",
+                options=format_options,
+                format_func=lambda x: RUSSIAN_FORMAT[x],
+                index=default_idx,
+                key="expert_format"
+            )
+
+            # Масштаб использования
+            scale_options = list(RUSSIAN_SCALE.keys())
+            default_idx = 0
+            if suggested_scale and suggested_scale in scale_options:
+                default_idx = scale_options.index(suggested_scale)
+
+            sel_scale = st.selectbox(
+                "Масштаб использования *",
+                options=scale_options,
+                format_func=lambda x: RUSSIAN_SCALE[x],
+                index=default_idx,
+                key="expert_scale"
+            )
+
+        # НОВЫЕ ПАРАМЕТРЫ
+        st.markdown("---")
+        st.markdown("**🔍 Дополнительные параметры (можно оставить 'Неизвестно'):**")
+
+        col_new1, col_new2 = st.columns(2)
+
+        with col_new1:
+            # Уровень конфиденциальности
+            conf_options = list(RUSSIAN_CONFIDENTIALITY.keys())
+            default_conf_idx = 0
+            if suggested_conf and suggested_conf in conf_options:
+                default_conf_idx = conf_options.index(suggested_conf)
+
+            sel_conf = st.selectbox(
+                "Уровень конфиденциальности",
+                options=conf_options,
+                format_func=lambda x: RUSSIAN_CONFIDENTIALITY[x],
+                index=default_conf_idx,
+                key="expert_conf",
+                help="Дополнительный уровень секретности (если применимо)"
+            )
+
+            # Количество пользователей
+            users_options = list(RUSSIAN_USERS.keys())
+            default_users_idx = 0
+            if suggested_users and suggested_users in users_options:
+                default_users_idx = users_options.index(suggested_users)
+
+            sel_users = st.selectbox(
+                "Количество пользователей",
+                options=users_options,
+                format_func=lambda x: RUSSIAN_USERS[x],
+                index=default_users_idx,
+                key="expert_users",
+                help="Сколько человек имеют доступ к ресурсу"
+            )
+
+        with col_new2:
+            # Критичность для бизнеса
+            crit_options = list(RUSSIAN_CRITICALITY.keys())
+            default_crit_idx = 0
+            if suggested_crit and suggested_crit in crit_options:
+                default_crit_idx = crit_options.index(suggested_crit)
+
+            sel_crit = st.selectbox(
+                "Критичность для бизнеса",
+                options=crit_options,
+                format_func=lambda x: RUSSIAN_CRITICALITY[x],
+                index=default_crit_idx,
+                key="expert_crit",
+                help="Насколько критичен ресурс для деятельности"
+            )
+
+            # Резервное копирование
+            backup_options = list(RUSSIAN_BACKUP.keys())
+            default_backup_idx = 0
+            if suggested_backup and suggested_backup in backup_options:
+                default_backup_idx = backup_options.index(suggested_backup)
+
+            sel_backup = st.selectbox(
+                "Резервное копирование",
+                options=backup_options,
+                format_func=lambda x: RUSSIAN_BACKUP[x],
+                index=default_backup_idx,
+                key="expert_backup",
+                help="Как часто создаются резервные копии"
+            )
+
+        # Кнопка сохранения
+        st.markdown("---")
+        col_save1, col_save2, col_save3 = st.columns([1, 1, 1])
+        with col_save2:
             save_resource_btn = st.button(
                 "💾 Сохранить ресурс",
                 type="primary",
                 use_container_width=True,
                 disabled=not resource_name
             )
-        with col_save2:
-            if st.session_state.resource_saved:
-                st.success("✅ Ресурс сохранен")
 
-        # Обработка сохранения ресурса
         if save_resource_btn and resource_name:
-            # Сохраняем ресурс в БД со всеми параметрами
+            # Сохраняем с новыми параметрами
             res_id = db.add_resource(
-                resource_name,
-                resource_desc,
-                RUSSIAN_ACCESS[sel_access],
-                RUSSIAN_TYPE[sel_type],
-                RUSSIAN_LIFE[sel_life],
-                RUSSIAN_FORMAT[sel_format],
-                RUSSIAN_SCALE[sel_scale]
+                name=resource_name,
+                description=resource_desc,
+                category=RUSSIAN_ACCESS[sel_access],
+                res_type=RUSSIAN_TYPE[sel_type],
+                lifecycle=RUSSIAN_LIFE[sel_life],
+                data_format=RUSSIAN_FORMAT[sel_format],
+                scale=RUSSIAN_SCALE[sel_scale],
+                confidentiality=RUSSIAN_CONFIDENTIALITY[sel_conf],
+                users_count=RUSSIAN_USERS[sel_users],
+                business_criticality=RUSSIAN_CRITICALITY[sel_crit],
+                backup=RUSSIAN_BACKUP[sel_backup]
             )
 
             st.session_state.current_resource_id = res_id
             st.session_state.resource_saved = True
-            st.session_state.show_rank_analysis = True
-            st.session_state.analysis_completed = False
-            st.session_state.analysis_triggered = False
-            # Сохраняем параметры в session_state для последующего использования
-            st.session_state.saved_sel_access = sel_access
-            st.session_state.saved_sel_type = sel_type
-            st.session_state.saved_sel_life = sel_life
-            st.session_state.saved_sel_format = sel_format
-            st.session_state.saved_sel_scale = sel_scale
+            st.session_state.selected_resource_for_analysis = res_id
 
             st.success(f"✅ Ресурс '{resource_name}' успешно сохранен! ID: {res_id}")
-            st.rerun()
+            st.balloons()
 
-# ============================================================================
 # ВКЛАДКА 2: АНАЛИЗ РАНГА СОХРАНЕННОГО РЕСУРСА
-# ============================================================================
 with tab2:
     st.header("📊 Анализ ранга сохраненного ресурса")
 
-    # Получаем список всех ресурсов
     resources = db.get_all_resources_full()
 
     if not resources:
         st.info("ℹ️ База данных пуста. Сначала добавьте ресурс на первой вкладке.")
     else:
-        # Создаем DataFrame для отображения
-        df_resources = pd.DataFrame(resources, columns=["ID", "Название", "Категория", "Описание", "Дата"])
-
         # Выбор ресурса
         col_select, col_btn = st.columns([3, 1])
 
         with col_select:
             resource_options = {r[0]: f"{r[0]}: {r[1]} ({r[2]})" for r in resources}
+
+            default_idx = 0
+            if st.session_state.selected_resource_for_analysis:
+                ids = list(resource_options.keys())
+                if st.session_state.selected_resource_for_analysis in ids:
+                    default_idx = ids.index(st.session_state.selected_resource_for_analysis)
+
             selected_res_id = st.selectbox(
                 "Выберите ресурс для анализа",
                 options=list(resource_options.keys()),
                 format_func=lambda x: resource_options[x],
+                index=default_idx,
                 key="analysis_res_selector"
             )
 
@@ -410,533 +574,447 @@ with tab2:
 
         if load_btn and selected_res_id:
             st.session_state.selected_resource_for_analysis = selected_res_id
-            # СБРАСЫВАЕМ ПРЕДЫДУЩИЙ АНАЛИЗ
-            st.session_state.rank_analysis_result = None
-            st.session_state.analysis_triggered = False
-            st.session_state.ai_suggestions = None
+            st.session_state.calculation_explanation = None
+            st.session_state.current_calculation = None
+            st.session_state.calculation_result = None  # ← добавить эту строку
             st.rerun()
 
         # Если ресурс выбран, показываем его параметры
         if st.session_state.selected_resource_for_analysis:
-            # Получаем полные данные ресурса
             resource_data = db.get_resource_full_by_id(st.session_state.selected_resource_for_analysis)
 
             if resource_data:
-                res_id, res_name, res_desc, res_category, res_type, res_life, res_format, res_scale, created_at = resource_data
+                # Распаковываем с учетом новых полей
+                if len(resource_data) >= 13:  # с новыми полями
+                    (res_id, res_name, res_desc, res_category, res_type, res_life,
+                     res_format, res_scale, res_conf, res_users, res_crit, res_backup, created_at) = resource_data
+                else:  # старый формат
+                    res_id, res_name, res_desc, res_category, res_type, res_life, res_format, res_scale, created_at = resource_data
+                    res_conf = res_users = res_crit = res_backup = "❓ Неизвестно"
 
                 st.markdown("---")
                 st.subheader(f"📋 Параметры ресурса: {res_name}")
 
-                # Отображаем параметры в две колонки
-                col_params1, col_params2 = st.columns(2)
-
+                # Отображаем все параметры
+                col_params1, col_params2, col_params3 = st.columns(3)
                 with col_params1:
                     st.info(f"**📋 Категория доступа:** {res_category}")
                     st.info(f"**📄 Тип ресурса:** {res_type}")
                     st.info(f"**⏱️ Жизненный цикл:** {res_life}")
-
                 with col_params2:
                     st.info(f"**💾 Формат данных:** {res_format}")
                     st.info(f"**📊 Масштаб:** {res_scale}")
+                    st.info(f"**🔒 Конфиденциальность:** {res_conf}")
+                with col_params3:
+                    st.info(f"**👥 Пользователей:** {res_users}")
+                    st.info(f"**🎯 Критичность:** {res_crit}")
+                    st.info(f"**💾 Бэкап:** {res_backup}")
 
                 with st.expander("📝 Полное описание"):
                     st.write(res_desc)
 
-                # Проверяем, есть ли уже оценки для этого ресурса
+                # Преобразуем русские названия в ключи
+                category_key = REVERSE_ACCESS.get(res_category, "public")
+                type_key = REVERSE_TYPE.get(res_type, "unknown")
+                life_key = REVERSE_LIFE.get(res_life, "unknown")
+                format_key = REVERSE_FORMAT.get(res_format, "unknown")
+                scale_key = REVERSE_SCALE.get(res_scale, "unknown")
+                conf_key = REVERSE_CONFIDENTIALITY.get(res_conf, "unknown")
+                users_key = REVERSE_USERS.get(res_users, "unknown")
+                crit_key = REVERSE_CRITICALITY.get(res_crit, "unknown")
+                backup_key = REVERSE_BACKUP.get(res_backup, "unknown")
+
+                # История оценок
                 history = db.get_evaluation_history(res_id)
 
+                # ========== БЛОК ЭКСПЕРТНОЙ ОЦЕНКИ ==========
+                st.markdown("---")
+                st.subheader("⚙️ Экспертная оценка (выставьте ранги вручную)")
+
+                # Значения по умолчанию = 1 (при загрузке ресурса)
+                default_fin = 1
+                default_oper = 1
+                default_jur = 1
+                default_rep = 1
+                default_strat = 1
+
+                # Если есть история, берем последние значения
                 if history:
-                    st.markdown("---")
-                    st.subheader("📊 Существующие оценки")
-
-                    # Показываем историю оценок
-                    df_history = pd.DataFrame(
-                        history,
-                        columns=["Дата", "Событие", "Итоговый ранг", "Фин", "Опер", "Юр", "Реп", "Страт", "S∑"]
-                    )
-                    st.dataframe(df_history, use_container_width=True)
-
-                    # Показываем последнюю оценку (текущую)
                     last_eval = history[-1]
-                    st.markdown("### Текущие ранги (последняя оценка)")
+                    default_fin = last_eval[3]  # rank_fin
+                    default_oper = last_eval[4]  # rank_oper
+                    default_jur = last_eval[5]  # rank_jur
+                    default_rep = last_eval[6]  # rank_rep
+                    default_strat = last_eval[7]  # rank_strat
 
-                    col_curr1, col_curr2 = st.columns(2)
-                    with col_curr1:
-                        st.metric("💰 Финансовый", last_eval[3])
-                        st.metric("⚙️ Операционный", last_eval[4])
-                        st.metric("⚖️ Юридический", last_eval[5])
-                    with col_curr2:
-                        st.metric("📢 Репутационный", last_eval[6])
-                        st.metric("🚩 Стратегический", last_eval[7])
-                        st.metric("📊 Итоговый ранг", last_eval[2])
+                # Ползунки для эксперта
+                # Ползунки для эксперта с динамическими ключами
+                col_sl1, col_sl2 = st.columns(2)
 
-                    st.warning(
-                        "⚠️ Для этого ресурса уже есть оценки. Для изменения рангов перейдите на вкладку 'Динамика и инциденты'.")
+                with col_sl1:
+                    expert_fin = st.slider(
+                        "💰 Финансовый риск (1-10)",
+                        1, 10, default_fin,
+                        help="Оцените потенциальные финансовые потери",
+                        key=f"expert_fin_{res_id}"
+                    )
+                    expert_oper = st.slider(
+                        "⚙️ Операционный риск (1-10)",
+                        1, 10, default_oper,
+                        help="Оцените влияние на бизнес-процессы",
+                        key=f"expert_oper_{res_id}"
+                    )
+                    expert_jur = st.slider(
+                        "⚖️ Юридический риск (1-8)",
+                        1, 8, default_jur,
+                        help="Оцените юридические последствия",
+                        key=f"expert_jur_{res_id}"
+                    )
 
-                else:
-                    st.markdown("---")
-                    st.subheader("🧮 Провести первичный анализ ранга")
-                    st.info(
-                        "ℹ️ Для этого ресурса еще нет оценок. Нажмите кнопку ниже для анализа с обоснованием от ИИ.")
+                with col_sl2:
+                    expert_rep = st.slider(
+                        "📢 Репутационный риск (1-8)",
+                        1, 8, default_rep,
+                        help="Оцените влияние на репутацию",
+                        key=f"expert_rep_{res_id}"
+                    )
+                    expert_strat = st.slider(
+                        "🚩 Стратегический риск (1-8)",
+                        1, 8, default_strat,
+                        help="Оцените влияние на стратегию",
+                        key=f"expert_strat_{res_id}"
+                    )
 
-                    # Кнопка для анализа с ИИ
-                    col_analyze1, col_analyze2, col_analyze3 = st.columns([1, 1, 1])
-                    with col_analyze2:
-                        analyze_ai_btn = st.button(
-                            "🤖 Анализ с ИИ",
-                            type="primary",
-                            use_container_width=True
+                # Кнопки: слева - сохранить, справа - рассчитать
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+
+                with col_btn1:
+                    save_direct_btn = st.button(
+                        "💾 Сохранить текущую оценку",
+                        type="secondary",
+                        use_container_width=True,
+                        help="Сохранить оценку без расчета (ранги останутся как на ползунках)"
+                    )
+
+                with col_btn2:
+                    calculate_expert_btn = st.button(
+                        "🧮 Рассчитать итоговый ранг",
+                        type="primary",
+                        use_container_width=True
+                    )
+
+                # Прямое сохранение (без расчета)
+                if save_direct_btn:
+                    expert_ranks = {
+                        'fin': expert_fin,
+                        'oper': expert_oper,
+                        'jur': expert_jur,
+                        'rep': expert_rep,
+                        'strat': expert_strat
+                    }
+
+                    # Нормализация
+                    s_scores, total_s = logic.calculate_normalization(expert_ranks)
+                    final_rank = logic.get_final_rank(total_s)
+                    protection_level = logic.get_protection_level(final_rank)
+
+                    # Подготовка деталей
+                    coeff_ranks = logic.calculate_base_ranks(
+                        category=category_key,
+                        res_type=type_key,
+                        lifecycle=life_key,
+                        data_format=format_key,
+                        scale=scale_key,
+                        confidentiality=conf_key,
+                        users_count=users_key,
+                        business_criticality=crit_key,
+                        backup=backup_key
+                    )
+
+                    details = {
+                        'base_ranks': logic.BASE_RANKS_BY_CATEGORY.get(category_key, {}),
+                        'coefficients': {
+                            'type': coeff_ranks.get('coeff_type', 1.0),
+                            'lifecycle': coeff_ranks.get('coeff_life', 1.0),
+                            'format': coeff_ranks.get('coeff_format', 1.0),
+                            'scale': coeff_ranks.get('coeff_scale', 1.0),
+                            'conf': coeff_ranks.get('coeff_conf', 1.0),
+                            'users': coeff_ranks.get('coeff_users', 1.0),
+                            'business': coeff_ranks.get('coeff_business', 1.0),
+                            'backup': coeff_ranks.get('coeff_backup', 1.0)
+                        },
+                        'formulas': {
+                            'fin': coeff_ranks.get('fin_formula', '?'),
+                            'oper': coeff_ranks.get('oper_formula', '?'),
+                            'jur': coeff_ranks.get('jur_formula', '?'),
+                            'rep': coeff_ranks.get('rep_formula', '?'),
+                            'strat': coeff_ranks.get('strat_formula', '?')
+                        },
+                        'params': {
+                            'category': category_key,
+                            'type': type_key,
+                            'lifecycle': life_key,
+                            'format': format_key,
+                            'scale': scale_key,
+                            'conf': conf_key,
+                            'users': users_key,
+                            'crit': crit_key,
+                            'backup': backup_key
+                        }
+                    }
+
+                    # Сохраняем
+                    db.save_evaluation(
+                        resource_id=res_id,
+                        ranks=expert_ranks,
+                        norm_score=total_s,
+                        final_rank=final_rank,
+                        trigger="Экспертная оценка (прямое сохранение)",
+                        details=details
+                    )
+
+                    st.success(f"✅ Оценка сохранена! Итоговый ранг: {final_rank}")
+                    st.balloons()
+                    st.rerun()
+
+                if calculate_expert_btn:
+                    # Формируем словарь с рангами эксперта
+                    expert_ranks = {
+                        'fin': expert_fin,
+                        'oper': expert_oper,
+                        'jur': expert_jur,
+                        'rep': expert_rep,
+                        'strat': expert_strat
+                    }
+
+                    # Получаем коэффициенты из logic
+                    coeff_ranks = logic.calculate_base_ranks(
+                        category=category_key,
+                        res_type=type_key,
+                        lifecycle=life_key,
+                        data_format=format_key,
+                        scale=scale_key,
+                        confidentiality=conf_key,
+                        users_count=users_key,
+                        business_criticality=crit_key,
+                        backup=backup_key
+                    )
+
+                    # Извлекаем коэффициенты
+                    coefficients = {
+                        'type': coeff_ranks.get('coeff_type', 1.0),
+                        'lifecycle': coeff_ranks.get('coeff_life', 1.0),
+                        'format': coeff_ranks.get('coeff_format', 1.0),
+                        'scale': coeff_ranks.get('coeff_scale', 1.0),
+                        'conf': coeff_ranks.get('coeff_conf', 1.0),
+                        'users': coeff_ranks.get('coeff_users', 1.0),
+                        'business': coeff_ranks.get('coeff_business', 1.0),
+                        'backup': coeff_ranks.get('coeff_backup', 1.0)
+                    }
+
+                    # Формируем формулы для отображения
+                    formulas = {
+                        'fin': coeff_ranks.get('fin_formula', '?'),
+                        'oper': coeff_ranks.get('oper_formula', '?'),
+                        'jur': coeff_ranks.get('jur_formula', '?'),
+                        'rep': coeff_ranks.get('rep_formula', '?'),
+                        'strat': coeff_ranks.get('strat_formula', '?')
+                    }
+
+                    # Нормализация
+                    s_scores, total_s = logic.calculate_normalization(expert_ranks)
+                    final_rank = logic.get_final_rank(total_s)
+                    protection_level = logic.get_protection_level(final_rank)
+
+                    # Сохраняем результат в сессию
+                    st.session_state.calculation_result = {
+                        'expert_ranks': expert_ranks,  # ← это значения с ползунков
+                        'coefficients': coefficients,
+                        'formulas': formulas,
+                        'total_s': total_s,
+                        'final_rank': final_rank,
+                        'protection_level': protection_level
+                    }
+
+                    # Запрашиваем объяснение у ИИ
+                    # Запрашиваем объяснение у ИИ
+                    with st.spinner("🤖 ИИ формирует экспертное заключение..."):
+                        params = {
+                            'access_category': category_key,
+                            'resource_type': type_key,
+                            'lifecycle': life_key,
+                            'data_format': format_key,
+                            'usage_scale': scale_key,
+                            'confidentiality': conf_key,
+                            'users_count': users_key,
+                            'business_criticality': crit_key,
+                            'backup': backup_key
+                        }
+
+                        base_ranks = logic.BASE_RANKS_BY_CATEGORY.get(category_key, {})
+
+                        # ИСПРАВЛЕНО: передаем итоговые ранги из coeff_ranks
+                        final_ranks_for_ai = {
+                            'fin': coeff_ranks['fin'],
+                            'oper': coeff_ranks['oper'],
+                            'jur': coeff_ranks['jur'],
+                            'rep': coeff_ranks['rep'],
+                            'strat': coeff_ranks['strat']
+                        }
+
+                        explanation = ai.explain_calculation(
+                            res_name,
+                            res_desc,
+                            params,
+                            base_ranks,
+                            coefficients,
+                            final_ranks_for_ai  # ← теперь здесь итоговые ранги после умножения на коэффициенты!
                         )
 
-                    # Преобразуем русские названия обратно в ключи для передачи в ИИ
-                    category_key = REVERSE_ACCESS.get(res_category, "public")
-                    type_key = REVERSE_TYPE.get(res_type, "document")
-                    life_key = REVERSE_LIFE.get(res_life, "medium_term")
-                    format_key = REVERSE_FORMAT.get(res_format, "text")
-                    scale_key = REVERSE_SCALE.get(res_scale, "department")
+                        if "error" not in explanation:
+                            st.session_state.calculation_explanation = explanation
+                        else:
+                            st.warning(f"ИИ не смог сформировать заключение: {explanation['error']}")
 
-                    # Рассчитываем базовые ранги для ползунков
-                    base_ranks = logic.calculate_base_ranks(
-                        category_key, type_key, life_key, format_key, scale_key
-                    )
 
-                    if analyze_ai_btn:
-                        with st.spinner(
-                                "🧠 ИИ анализирует ресурс и формирует обоснование... Это может занять некоторое время."):
 
-                            # Получаем анализ от ИИ
-                            rank_analysis = ai.get_rank_analysis(
-                                res_name,
-                                res_desc,
-                                category_key,
-                                type_key,
-                                life_key,
-                                format_key,
-                                scale_key
-                            )
+                # Отображение результатов расчета
+                if st.session_state.get("calculation_result"):
+                    result = st.session_state.calculation_result
 
-                            if "error" not in rank_analysis:
-                                st.session_state.rank_analysis_result = rank_analysis
-                                st.success("✅ Анализ получен!")
-                            else:
-                                st.error(f"Ошибка при анализе: {rank_analysis['error']}")
+                    st.markdown("---")
+                    st.subheader("📊 Результаты расчета")
 
-                    # Если есть результаты анализа, показываем их
-                        # Если есть результаты анализа, показываем их
-                        # Если есть результаты анализа, показываем их
-                        if st.session_state.get("rank_analysis_result"):
-                            result = st.session_state.rank_analysis_result
+                    # Метрики
+                    col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
+                    with col_m1:
+                        st.metric("💰 Финансовый", f"{result['expert_ranks']['fin']}/10")
+                    with col_m2:
+                        st.metric("⚙️ Операционный", f"{result['expert_ranks']['oper']}/10")
+                    with col_m3:
+                        st.metric("⚖️ Юридический", f"{result['expert_ranks']['jur']}/8")
+                    with col_m4:
+                        st.metric("📢 Репутационный", f"{result['expert_ranks']['rep']}/8")
+                    with col_m5:
+                        st.metric("🚩 Стратегический", f"{result['expert_ranks']['strat']}/8")
 
-                            # Показываем общее заключение
-                            if "summary" in result:
-                                st.info(f"**📋 Заключение ИИ:** {result['summary']}")
+                    col_i1, col_i2, col_i3 = st.columns(3)
+                    with col_i1:
+                        st.metric("Интегральный S∑", f"{result['total_s']:.3f}")
+                    with col_i2:
+                        st.metric("Итоговый ранг", f"{result['final_rank']}")
+                    with col_i3:
+                        st.metric("Уровень защиты", result['protection_level'])
 
-                            # Показываем нормативные документы
-                            law_refs_list = result.get('law_refs', [])
-                            if law_refs_list:
-                                with st.expander("📚 Нормативные документы, использованные при анализе"):
-                                    for ref in law_refs_list:
-                                        if os.path.exists(f"sources/{ref}"):
-                                            st.markdown(f"- 📄 `{ref}`")
-                                        else:
-                                            st.markdown(f"- 📄 {ref}")
+                    # Детализация расчета
+                    with st.expander("🧮 Детализация расчета", expanded=True):
+                        st.markdown("### Коэффициенты влияния")
+                        coeff_data = {
+                            "Параметр": ["Тип ресурса", "Жизненный цикл", "Формат данных", "Масштаб",
+                                         "Конфиденциальность", "Пользователи", "Критичность", "Резервное копирование"],
+                            "Коэффициент": [
+                                f"{result['coefficients']['type']:.2f}",
+                                f"{result['coefficients']['lifecycle']:.2f}",
+                                f"{result['coefficients']['format']:.2f}",
+                                f"{result['coefficients']['scale']:.2f}",
+                                f"{result['coefficients']['conf']:.2f}",
+                                f"{result['coefficients']['users']:.2f}",
+                                f"{result['coefficients']['business']:.2f}",
+                                f"{result['coefficients']['backup']:.2f}"
+                            ]
+                        }
+                        st.table(pd.DataFrame(coeff_data))
 
-                            # Получаем ранги из результата или используем расчетные
-                            # Инициализируем переменные значениями по умолчанию
-                            fin_reason = oper_reason = jur_reason = rep_reason = strat_reason = ""
-                            fin_law = oper_law = jur_law = rep_law = strat_law = ""
+                        st.markdown("### Формулы расчета")
+                        formula_data = {
+                            "Критерий": ["Финансовый", "Операционный", "Юридический", "Репутационный",
+                                         "Стратегический"],
+                            "Формула": [
+                                result['formulas']['fin'],
+                                result['formulas']['oper'],
+                                result['formulas']['jur'],
+                                result['formulas']['rep'],
+                                result['formulas']['strat']
+                            ]
+                        }
+                        st.table(pd.DataFrame(formula_data))
 
-                            # Получаем коэффициенты из logic.py
-                            k_t = logic.TYPE_COEFFS.get(type_key, 1.0)
-                            k_l = logic.LIFECYCLE_COEFFS.get(life_key, 1.0)
-                            k_f = logic.FORMAT_COEFFS.get(format_key, 1.0)
-                            k_s = logic.SCALE_COEFFS.get(scale_key, 1.0)
+                    # Экспертное заключение ИИ
+                    if st.session_state.get("calculation_explanation"):
+                        with st.expander("📚 Экспертное заключение ИИ (на основе НПА)", expanded=True):
+                            exp = st.session_state.calculation_explanation
 
-                            # БАЗОВЫЕ РАНГИ ИЗ LOGIC.PY (то, что показывает в таблице)
-                            base_fin = base_ranks['fin']
-                            base_oper = base_ranks['oper']
-                            base_jur = base_ranks['jur']
-                            base_rep = base_ranks['rep']
-                            base_strat = base_ranks['strat']
+                            if "summary" in exp:
+                                st.info(f"**Общее заключение:** {exp['summary']}")
 
-                            # МАТЕМАТИЧЕСКИ РАССЧИТАННЫЕ ЗНАЧЕНИЯ (итоговые ранги)
-                            fin_val = min(8, int(round(base_fin * k_t * k_l * k_f)))
-                            oper_val = min(8, int(round(base_oper * k_t * k_s)))
-                            jur_val = min(5, int(round(base_jur * k_t * k_l)))
-                            rep_val = min(5, int(round(base_rep * k_t * k_l)))
-                            strat_val = min(5, int(round(base_strat * k_t * k_l)))
-
-                            if "rank_analysis" in result:
-                                rank_data = result["rank_analysis"]
-
-                                # Извлекаем значения из ИИ (для объяснений)
-                                fin_reason = rank_data.get('fin', {}).get('reasoning', '')
-                                oper_reason = rank_data.get('oper', {}).get('reasoning', '')
-                                jur_reason = rank_data.get('jur', {}).get('reasoning', '')
-                                rep_reason = rank_data.get('rep', {}).get('reasoning', '')
-                                strat_reason = rank_data.get('strat', {}).get('reasoning', '')
-
-                                fin_law = rank_data.get('fin', {}).get('law_ref', '')
-                                oper_law = rank_data.get('oper', {}).get('law_ref', '')
-                                jur_law = rank_data.get('jur', {}).get('law_ref', '')
-                                rep_law = rank_data.get('rep', {}).get('law_ref', '')
-                                strat_law = rank_data.get('strat', {}).get('law_ref', '')
-
-                                # ЗАМЕНЯЕМ НЕКОРРЕКТНЫЕ ЗНАЧЕНИЯ В ОБЪЯСНЕНИЯХ
-                                # Ищем в тексте объяснения числа и заменяем их на правильные
-                                import re
-
-                                if fin_reason:
-                                    # Заменяем неправильные базовые значения в тексте
-                                    fin_reason = re.sub(r'базовый ранг \d+', f'базовый ранг {base_fin}', fin_reason)
-                                    fin_reason = re.sub(r'базового ранга \d+', f'базового ранга {base_fin}', fin_reason)
-                                    fin_reason = re.sub(r'исходный ранг \d+', f'исходный ранг {base_fin}', fin_reason)
-                                    # Заменяем неправильные итоговые значения
-                                    fin_reason = re.sub(r'итоговое значение \d+', f'итоговое значение {fin_val}',
-                                                        fin_reason)
-                                    fin_reason = re.sub(r'итоговый ранг \d+', f'итоговый ранг {fin_val}', fin_reason)
-                                    # Заменяем конкретные формулы
-                                    fin_reason = re.sub(r'\d+ × \d+\.?\d* × \d+\.?\d* × \d+\.?\d* = \d+',
-                                                        f'{base_fin} × {k_t} × {k_l} × {k_f} = {fin_val}', fin_reason)
-
-                                if oper_reason:
-                                    oper_reason = re.sub(r'базовый ранг \d+', f'базовый ранг {base_oper}', oper_reason)
-                                    oper_reason = re.sub(r'итоговое значение \d+', f'итоговое значение {oper_val}',
-                                                         oper_reason)
-                                    oper_reason = re.sub(r'\d+ × \d+\.?\d* × \d+\.?\d* = \d+',
-                                                         f'{base_oper} × {k_t} × {k_s} = {oper_val}', oper_reason)
-
-                                if jur_reason:
-                                    jur_reason = re.sub(r'базовый ранг \d+', f'базовый ранг {base_jur}', jur_reason)
-                                    jur_reason = re.sub(r'итоговое значение \d+', f'итоговое значение {jur_val}',
-                                                        jur_reason)
-                                    jur_reason = re.sub(r'\d+ × \d+\.?\d* × \d+\.?\d* = \d+',
-                                                        f'{base_jur} × {k_t} × {k_l} = {jur_val}', jur_reason)
-
-                                if rep_reason:
-                                    rep_reason = re.sub(r'базовый ранг \d+', f'базовый ранг {base_rep}', rep_reason)
-                                    rep_reason = re.sub(r'итоговое значение \d+', f'итоговое значение {rep_val}',
-                                                        rep_reason)
-                                    rep_reason = re.sub(r'\d+ × \d+\.?\d* × \d+\.?\d* = \d+',
-                                                        f'{base_rep} × {k_t} × {k_l} = {rep_val}', rep_reason)
-
-                                if strat_reason:
-                                    strat_reason = re.sub(r'базовый ранг \d+', f'базовый ранг {base_strat}',
-                                                          strat_reason)
-                                    strat_reason = re.sub(r'итоговое значение \d+', f'итоговое значение {strat_val}',
-                                                          strat_reason)
-                                    strat_reason = re.sub(r'\d+ × \d+\.?\d* × \d+\.?\d* = \d+',
-                                                          f'{base_strat} × {k_t} × {k_l} = {strat_val}', strat_reason)
-
-                                # Если ИИ не указал источники или все одинаковые, распределяем принудительно
-                                if law_refs_list:
-                                    # Проверяем, все ли источники одинаковые
-                                    all_same = all(
-                                        law == fin_law for law in
-                                        [fin_law, oper_law, jur_law, rep_law, strat_law] if law)
-
-                                    if all_same or not any(
-                                            [fin_law, oper_law, jur_law, rep_law, strat_law]):
-                                        # Принудительно распределяем документы по критериям
-                                        doc_mapping = {
-                                            'fin': law_refs_list[0] if len(
-                                                law_refs_list) > 0 else "ФЗ-149.pdf",
-                                            'oper': law_refs_list[1] if len(
-                                                law_refs_list) > 1 else "гост р исомэк 27002-2021.txt",
-                                            'jur': law_refs_list[2] if len(
-                                                law_refs_list) > 2 else "Grazhdanskiy-kodeks-Rossiyskoy-Federatsii-chast-chetvertaya-ot-18.12.2006-N-230_FZ.pdf",
-                                            'rep': law_refs_list[3] if len(
-                                                law_refs_list) > 3 else "Закон-от-07_07_2003-N-126-ФЗ-О-связи-с-изменениями-на-26-декабря-2024-года_Текст.pdf",
-                                            'strat': law_refs_list[4] if len(
-                                                law_refs_list) > 4 else "Новый Методический документ МЕТОДИКА ОЦЕНКИ УБИ от 5 февраля 2021 г.pdf"
-                                        }
-                                        fin_law = doc_mapping['fin']
-                                        oper_law = doc_mapping['oper']
-                                        jur_law = doc_mapping['jur']
-                                        rep_law = doc_mapping['rep']
-                                        strat_law = doc_mapping['strat']
-
-                            # ===== НАЧАЛО БЛОКА С КОЭФФИЦИЕНТАМИ =====
-                            # Показываем коэффициенты и расчет
-                            with st.expander("🧮 Детализация расчета рангов", expanded=True):
-                                st.markdown("### Коэффициенты влияния")
-
-                                # Таблица с коэффициентами
-                                coeff_data = {
-                                    "Параметр": ["Тип ресурса", "Жизненный цикл", "Формат данных",
-                                                 "Масштаб использования"],
-                                    "Коэффициент": [
-                                        f"{k_t} ({res_type})",
-                                        f"{k_l} ({res_life})",
-                                        f"{k_f} ({res_format})",
-                                        f"{k_s} ({res_scale})"
-                                    ],
-                                    "Влияние": [
-                                        "Увеличивает все риски",
-                                        "Влияет на долгосрочные риски",
-                                        "Влияет на утечки данных",
-                                        "Влияет на масштаб сбоя"
-                                    ]
+                            if "explanations" in exp:
+                                crit_names = {
+                                    'fin': '💰 Финансовый риск',
+                                    'oper': '⚙️ Операционный риск',
+                                    'jur': '⚖️ Юридический риск',
+                                    'rep': '📢 Репутационный риск',
+                                    'strat': '🚩 Стратегический риск'
                                 }
-                                st.table(pd.DataFrame(coeff_data))
 
-                                # Таблица с базовыми рангами
-                                st.markdown("### Базовые ранги (по категории доступа)")
-                                base_data = {
-                                    "Критерий": ["Финансовый", "Операционный", "Юридический", "Репутационный",
-                                                 "Стратегический"],
-                                    "Базовый ранг": [
-                                        base_ranks['fin'],
-                                        base_ranks['oper'],
-                                        base_ranks['jur'],
-                                        base_ranks['rep'],
-                                        base_ranks['strat']
-                                    ],
-                                    "Обоснование": [
-                                        "Штрафы за утечку ПДн",
-                                        "Влияние на бизнес-процессы",
-                                        "Ответственность по ФЗ-152",
-                                        "Доверие граждан",
-                                        "Долгосрочное развитие"
-                                    ]
+                                for crit, title in crit_names.items():
+                                    if crit in exp["explanations"]:
+                                        st.markdown(f"### {title}")
+                                        st.markdown(exp["explanations"][crit].get("text", "Нет объяснения"))
+                                        if "law_refs" in exp["explanations"][crit]:
+                                            st.caption(
+                                                "📄 Источники: " + ", ".join(exp["explanations"][crit]["law_refs"]))
+                                        st.markdown("---")
+
+                    # Кнопка сохранения (после расчета)
+                    st.markdown("---")
+
+                    need_save = True
+                    if history:
+                        last_date = datetime.strptime(history[-1][0], "%Y-%m-%d %H:%M:%S")
+                        now = datetime.now()
+                        if (now - last_date).days < 1 and history[-1][2] == result['final_rank']:
+                            need_save = False
+                            st.info("ℹ️ Оценка не изменилась с последнего раза. Сохранение не требуется.")
+
+                    if need_save:
+                        col_save1, col_save2, col_save3 = st.columns([1, 1, 1])
+                        with col_save2:
+                            if st.button("💾 Сохранить оценку в историю (после расчета)", use_container_width=True):
+                                details = {
+                                    'base_ranks': logic.BASE_RANKS_BY_CATEGORY.get(category_key, {}),
+                                    'coefficients': result['coefficients'],
+                                    'formulas': result['formulas'],
+                                    'params': {
+                                        'category': category_key,
+                                        'type': type_key,
+                                        'lifecycle': life_key,
+                                        'format': format_key,
+                                        'scale': scale_key,
+                                        'conf': conf_key,
+                                        'users': users_key,
+                                        'crit': crit_key,
+                                        'backup': backup_key
+                                    }
                                 }
-                                st.table(pd.DataFrame(base_data))
 
-                                # Таблица с итоговыми рангами и формулами
-                                st.markdown("### Итоговые ранги (с учетом коэффициентов)")
-
-                                # Формулы для каждого критерия
-                                fin_formula = f"{base_ranks['fin']} × {k_t} × {k_l} × {k_f} = {fin_val}"
-                                oper_formula = f"{base_ranks['oper']} × {k_t} × {k_s} = {oper_val}"
-                                jur_formula = f"{base_ranks['jur']} × {k_t} × {k_l} = {jur_val}"
-                                rep_formula = f"{base_ranks['rep']} × {k_t} × {k_l} = {rep_val}"
-                                strat_formula = f"{base_ranks['strat']} × {k_t} × {k_l} = {strat_val}"
-
-                                formula_data = {
-                                    "Критерий": ["Финансовый", "Операционный", "Юридический", "Репутационный",
-                                                 "Стратегический"],
-                                    "Формула": [fin_formula, oper_formula, jur_formula, rep_formula, strat_formula],
-                                    "Ранг": [fin_val, oper_val, jur_val, rep_val, strat_val]
-                                }
-                                st.table(pd.DataFrame(formula_data))
-
-                                # Показываем все доступные документы
-                                if law_refs_list:
-                                    st.markdown("### Все доступные нормативные документы")
-                                    doc_df = pd.DataFrame({
-                                        "№": range(1, len(law_refs_list) + 1),
-                                        "Документ": law_refs_list
-                                    })
-                                    st.table(doc_df)
-                            # ===== КОНЕЦ БЛОКА С КОЭФФИЦИЕНТАМИ =====
-
-                            st.markdown("### Результаты расчета с обоснованием")
-
-
-                            # Функция для форматирования длинных объяснений
-                            def format_reasoning(criterion_name, base_value, formula, reasoning, law_ref,
-                                                 law_refs_list, custom_text=""):
-                                """Форматирует подробное обоснование для критерия"""
-                                doc_num = law_refs_list.index(law_ref) + 1 if law_ref in law_refs_list else "?"
-
-                                # Базовое объяснение, если ИИ дал слишком короткое
-                                if len(reasoning.split()) < 30:  # Если меньше 30 слов
-                                    if criterion_name == "Финансовый":
-                                        return f"""Базовый ранг {base_value} для данного критерия обусловлен категорией доступа. 
-                    Финансовый риск оценивается в {base_value} баллов, что означает {'критический' if base_value > 6 else 'высокий' if base_value > 4 else 'средний'} уровень угрозы. 
-                    Применение коэффициентов: тип ресурса {k_t}, жизненный цикл {k_l}, формат данных {k_f} увеличивает итоговое значение до {fin_val}. 
-                    Согласно законодательству РФ, утечка персональных данных влечет штрафы до 6 млн рублей (ФЗ-152). 
-                    Для федеральной системы масштаб ущерба может быть значительно выше из-за количества затронутых граждан (более 50 млн налогоплательщиков). 
-                    Дополнительные расходы включают затраты на восстановление системы, компенсации пострадавшим, судебные издержки. 
-                    Долгосрочное хранение данных (постоянно) увеличивает период потенциальной ответственности. 
-                    Все эти факторы в совокупности обуславливают итоговую оценку {fin_val} баллов."""
-
-                                    elif criterion_name == "Операционный":
-                                        return f"""Базовый ранг {base_value} отражает критичность системы для бизнес-процессов ФНС.
-                    Операционный риск оценивается в {base_value} баллов, что означает {'полную остановку' if base_value > 6 else 'критический сбой' if base_value > 4 else 'частичные нарушения'}.
-                    Коэффициент масштаба {k_s} увеличивает риск до {oper_val} из-за 150 000 пользователей системы.
-                    При сбое системы невозможно будет сдавать налоговую отчетность, получать выписки, регистрировать компании.
-                    Простой федеральной системы может продлиться от нескольких часов до нескольких дней.
-                    За это время бюджет недополучит налоговые поступления, бизнес не сможет работать легально.
-                    Потребуется ручное дублирование функций, что увеличит нагрузку на сотрудников ФНС.
-                    Время восстановления зависит от сложности инцидента и может потребовать полного перезапуска ЦОДов.
-                    Документ {law_ref} (№{doc_num}) определяет требования к непрерывности функционирования критических систем."""
-
-                                    elif criterion_name == "Юридический":
-                                        return f"""Базовый ранг {base_value} определен категорией доступа 'personal_data'.
-                    Юридический риск максимальный ({base_value} из 5), так как система обрабатывает данные всех налогоплательщиков РФ.
-                    Применение коэффициентов {k_t} и {k_l} подтверждает высокий уровень ответственности.
-                    Нарушение влечет ответственность по нескольким статьям: ст. 183 УК РФ (налоговая тайна) - до 7 лет лишения свободы, 
-                    ст. 13.11 КоАП РФ (нарушение обработки ПДн) - штрафы до 6 млн рублей,
-                    ст. 19.7 КоАП РФ (непредставление информации) - дисквалификация должностных лиц.
-                    ФЗ-152 "О персональных данных" устанавливает обязанность уведомлять Роскомнадзор об инцидентах.
-                    Налоговый кодекс РФ определяет режим налоговой тайны и ответственность за ее разглашение.
-                    Регуляторы (ФНС, Роскомнадзор, ФСТЭК) проводят регулярные проверки.
-                    Документ {law_ref} (№{doc_num}) содержит соответствующие нормы права."""
-
-                                    elif criterion_name == "Репутационный":
-                                        return f"""Базовый ранг {base_value} отражает чувствительность налоговых данных для общества.
-                    Репутационный риск оценивается как {base_value} из 5 - критический уровень.
-                    Утечка данных налогоплательщиков подрывает доверие граждан к налоговой системе и государству в целом.
-                    Граждане могут начать скрывать доходы, уходить в тень, что снизит собираемость налогов.
-                    Бизнес потеряет уверенность в защите коммерческой тайны при взаимодействии с ФНС.
-                    Международный опыт (Panama Papers, LuxLeaks) показывает масштаб репутационных потерь.
-                    Информация об инциденте широко освещается в СМИ и социальных сетях.
-                    Восстановление репутации занимает годы, а часто является необратимым.
-                    Документ {law_ref} (№{doc_num}) содержит анализ подобных инцидентов."""
-
-                                    elif criterion_name == "Стратегический":
-                                        return f"""Базовый ранг {base_value} обусловлен долгосрочным характером хранения данных.
-                    Стратегический риск оценивается как {base_value} из 5 - значительное влияние на развитие.
-                    Система хранит налоговые данные постоянно, накапливая информацию за десятилетия.
-                    Эти данные необходимы для: анализа экономики, прогнозирования доходов бюджета, 
-                    планирования налоговой политики, борьбы с уклонением от уплаты налогов, 
-                    международного обмена налоговой информацией (CRS, FATCA).
-                    Потеря данных лишит государство возможности отслеживать многолетние налоговые истории.
-                    Консолидированные данные о доходах населения необходимы для социальной политики.
-                    Без этих данных невозможно эффективное стратегическое планирование.
-                    Документ {law_ref} (№{doc_num}) определяет стратегическое значение налоговых данных."""
-
-                                return reasoning
-
-
-                            # Ползунки с обоснованием
-                            col_r1, col_r2 = st.columns(2)
-
-                            with col_r1:
-                                st.markdown("**💰 Финансовый ущерб (1-8)**")
-                                st.caption(f"Формула: {fin_formula}")
-                                r_fin = st.slider(
-                                    "Финансовый",
-                                    min_value=1, max_value=8,
-                                    value=int(fin_val),
-                                    key="rank_fin_slider",
-                                    label_visibility="collapsed"
+                                db.save_evaluation(
+                                    resource_id=res_id,
+                                    ranks=result['expert_ranks'],
+                                    norm_score=result['total_s'],
+                                    final_rank=result['final_rank'],
+                                    trigger="Экспертная оценка (после расчета)",
+                                    details=details
                                 )
-                                # Форматируем объяснение
-                                fin_display = format_reasoning(
-                                    "Финансовый", base_ranks['fin'], fin_formula,
-                                    fin_reason, fin_law, law_refs_list
-                                )
-                                doc_num = law_refs_list.index(fin_law) + 1 if fin_law in law_refs_list else "?"
-                                st.info(f"📌 {fin_display}\n\n*Источник: Документ {doc_num} - {fin_law}*")
 
-                                st.markdown("**⚙️ Операционный сбой (1-8)**")
-                                st.caption(f"Формула: {oper_formula}")
-                                r_oper = st.slider(
-                                    "Операционный",
-                                    min_value=1, max_value=8,
-                                    value=int(oper_val),
-                                    key="rank_oper_slider",
-                                    label_visibility="collapsed"
-                                )
-                                oper_display = format_reasoning(
-                                    "Операционный", base_ranks['oper'], oper_formula,
-                                    oper_reason, oper_law, law_refs_list
-                                )
-                                doc_num = law_refs_list.index(oper_law) + 1 if oper_law in law_refs_list else "?"
-                                st.info(f"📌 {oper_display}\n\n*Источник: Документ {doc_num} - {oper_law}*")
-
-                            with col_r2:
-                                st.markdown("**⚖️ Юридический риск (1-5)**")
-                                st.caption(f"Формула: {jur_formula}")
-                                r_jur = st.slider(
-                                    "Юридический",
-                                    min_value=1, max_value=5,
-                                    value=int(jur_val),
-                                    key="rank_jur_slider",
-                                    label_visibility="collapsed"
-                                )
-                                jur_display = format_reasoning(
-                                    "Юридический", base_ranks['jur'], jur_formula,
-                                    jur_reason, jur_law, law_refs_list
-                                )
-                                doc_num = law_refs_list.index(jur_law) + 1 if jur_law in law_refs_list else "?"
-                                st.info(f"📌 {jur_display}\n\n*Источник: Документ {doc_num} - {jur_law}*")
-
-                                st.markdown("**📢 Репутационный ущерб (1-5)**")
-                                st.caption(f"Формула: {rep_formula}")
-                                r_rep = st.slider(
-                                    "Репутационный",
-                                    min_value=1, max_value=5,
-                                    value=int(rep_val),
-                                    key="rank_rep_slider",
-                                    label_visibility="collapsed"
-                                )
-                                rep_display = format_reasoning(
-                                    "Репутационный", base_ranks['rep'], rep_formula,
-                                    rep_reason, rep_law, law_refs_list
-                                )
-                                doc_num = law_refs_list.index(rep_law) + 1 if rep_law in law_refs_list else "?"
-                                st.info(f"📌 {rep_display}\n\n*Источник: Документ {doc_num} - {rep_law}*")
-
-                                st.markdown("**🚩 Стратегический ущерб (1-5)**")
-                                st.caption(f"Формула: {strat_formula}")
-                                r_strat = st.slider(
-                                    "Стратегический",
-                                    min_value=1, max_value=5,
-                                    value=int(strat_val),
-                                    key="rank_strat_slider",
-                                    label_visibility="collapsed"
-                                )
-                                strat_display = format_reasoning(
-                                    "Стратегический", base_ranks['strat'], strat_formula,
-                                    strat_reason, strat_law, law_refs_list
-                                )
-                                doc_num = law_refs_list.index(strat_law) + 1 if strat_law in law_refs_list else "?"
-                                st.info(f"📌 {strat_display}\n\n*Источник: Документ {doc_num} - {strat_law}*")
-
-
-                        # Кнопка сохранения
-                        if st.button("💾 Сохранить оценку в историю", use_container_width=True):
-                            final_ranks = {
-                                'fin': r_fin, 'oper': r_oper,
-                                'jur': r_jur, 'rep': r_rep, 'strat': r_strat
-                            }
-
-                            # Нормализация
-                            s_scores, total_s = logic.calculate_normalization(final_ranks)
-                            final_rank = logic.get_final_rank(total_s)
-
-                            # Сохраняем
-                            db.save_evaluation(
-                                res_id,
-                                final_ranks,
-                                total_s,
-                                final_rank,
-                                trigger="Первичная оценка (с обоснованием ИИ)"
-                            )
-
-                            st.success(f"✅ Оценка сохранена! Итоговый ранг: {final_rank}")
-                            st.balloons()
-
-                            # Показываем итоговые метрики
-                            col_m1, col_m2, col_m3 = st.columns(3)
-                            with col_m1:
-                                st.metric("Интегральная сумма S∑", f"{total_s:.3f}")
-                            with col_m2:
-                                st.metric("Итоговый ранг", final_rank)
-                            with col_m3:
-                                protection_level = {
-                                    1: "Базовый (открытая инф.)",
-                                    2: "Базовый",
-                                    3: "Стандартный",
-                                    4: "Стандартный",
-                                    5: "Повышенный",
-                                    6: "Повышенный",
-                                    7: "Высокий",
-                                    8: "Высокий",
-                                    9: "Максимальный"
-                                }.get(final_rank, "Не определен")
-                                st.metric("Уровень защиты", protection_level)
-
+                                st.success(f"✅ Оценка сохранена! Итоговый ранг: {result['final_rank']}")
+                                st.balloons()
+                                st.rerun()
 # ============================================================================
 # ВКЛАДКА 3: ДИНАМИКА И ИНЦИДЕНТЫ
 # ============================================================================
 with tab3:
     st.header("⚡ Анализ динамики ценности при инцидентах")
 
-    # Получаем список ресурсов
     resources = db.get_all_resources_full()
 
     if not resources:
@@ -956,199 +1034,155 @@ with tab3:
         history = db.get_evaluation_history(selected_res_id)
 
         if not history:
-            st.warning("⚠️ Для этого ресурса еще нет оценок. Сначала проведите первичный анализ на вкладке 2.")
+            st.warning("⚠️ Для этого ресурса еще нет оценок. Сначала проведите анализ на вкладке 2.")
         else:
             # График динамики
             st.subheader("📈 Динамика изменения ценности")
 
             df_history = pd.DataFrame(
                 history,
-                columns=["Дата", "Событие", "Ранг", "Фин", "Опер", "Юр", "Реп", "Страт", "S∑"]
+                columns=["Дата", "Событие", "Ранг", "Фин", "Опер", "Юр", "Реп", "Страт", "S∑", "Детали"]
             )
 
-            # График
-            chart_data = df_history[["Дата", "Ранг"]].set_index("Дата")
-            st.line_chart(chart_data)
+            if len(df_history) > 1:
+                chart_data = df_history[["Дата", "Ранг"]].copy()
+                chart_data["Дата"] = pd.to_datetime(chart_data["Дата"])
+                chart_data = chart_data.set_index("Дата")
+                st.line_chart(chart_data)
+            else:
+                st.info("ℹ️ Для построения графика нужно минимум 2 оценки")
 
-            # Таблица истории
             with st.expander("📋 История оценок", expanded=False):
-                st.dataframe(df_history, use_container_width=True)
+                display_df = df_history.drop(columns=["Детали"] if "Детали" in df_history.columns else [])
+                st.dataframe(display_df, use_container_width=True)
 
             st.markdown("---")
 
-            # Текущие ранги
-            last_eval = history[-1]
-            current_ranks = {
-                'fin': last_eval[3], 'oper': last_eval[4],
-                'jur': last_eval[5], 'rep': last_eval[6], 'strat': last_eval[7]
-            }
+            # Текущие параметры ресурса
+            resource_data = db.get_resource_full_by_id(selected_res_id)
+            if resource_data:
+                if len(resource_data) >= 13:
+                    (res_id, res_name, res_desc, res_category, res_type, res_life,
+                     res_format, res_scale, res_conf, res_users, res_crit, res_backup, _) = resource_data
+                else:
+                    res_id, res_name, res_desc, res_category, res_type, res_life, res_format, res_scale, _ = resource_data
+                    res_conf = res_users = res_crit = res_backup = "❓ Неизвестно"
 
-            # Блок анализа инцидента
-            st.subheader("⚡ Фиксация инициирующего события")
+                # Блок анализа инцидента
+                st.subheader("⚡ Моделирование инициирующего события")
 
-            col_event1, col_event2 = st.columns([2, 1])
+                col_event1, col_event2 = st.columns([2, 1])
 
-            with col_event1:
-                event_name = st.text_input(
-                    "Описание события",
-                    placeholder="Например: Обнаружена критическая уязвимость, утечка данных, установка патча...",
-                    key="incident_event"
-                )
-
-            with col_event2:
-                analyze_incident_btn = st.button(
-                    "🤖 Анализ инцидента",
-                    type="secondary",
-                    use_container_width=True,
-                    disabled=not event_name
-                )
-
-            # Анализ инцидента ИИ
-            if analyze_incident_btn and event_name:
-                with st.spinner("🔍 ИИ анализирует последствия инцидента..."):
-                    analysis = ai.get_ai_incident_analysis(
-                        res_dict[selected_res_id],
-                        event_name,
-                        current_ranks
+                with col_event1:
+                    event_name = st.text_input(
+                        "Описание события",
+                        placeholder="Например: Обнаружена критическая уязвимость, утечка данных, изменение законодательства...",
+                        key="incident_event"
                     )
 
-                    if "error" not in analysis:
-                        st.session_state.ai_incident_suggestions = analysis
-                        st.success("✅ Анализ инцидента получен")
-                    else:
-                        st.error(f"Ошибка: {analysis['error']}")
+                with col_event2:
+                    analyze_incident_btn = st.button(
+                        "🤖 Анализ события",
+                        type="secondary",
+                        use_container_width=True,
+                        disabled=not event_name
+                    )
 
-            # Отображение рекомендаций ИИ по инциденту
-            if st.session_state.ai_incident_suggestions:
-                suggestions = st.session_state.ai_incident_suggestions
+                if analyze_incident_btn and event_name:
+                    with st.spinner("🔍 ИИ анализирует влияние события..."):
+                        current_params = {
+                            'access_category': REVERSE_ACCESS.get(res_category, "public"),
+                            'resource_type': REVERSE_TYPE.get(res_type, "unknown"),
+                            'lifecycle': REVERSE_LIFE.get(res_life, "unknown"),
+                            'data_format': REVERSE_FORMAT.get(res_format, "unknown"),
+                            'usage_scale': REVERSE_SCALE.get(res_scale, "unknown")
+                        }
 
-                with st.expander("🤖 Рекомендации ИИ по инциденту", expanded=True):
-                    if "reasoning" in suggestions:
-                        st.info(f"**Анализ:** {suggestions['reasoning']}")
+                        analysis = ai.analyze_incident(
+                            res_name,
+                            res_desc,
+                            current_params,
+                            event_name
+                        )
 
-                    if "law_refs" in suggestions and suggestions["law_refs"]:
-                        st.markdown("**📚 Нормативные документы:**")
-                        for ref in suggestions["law_refs"]:
-                            if os.path.exists(f"sources/{ref}"):
-                                st.markdown(f"- 📄 `{ref}`")
-                            else:
-                                st.markdown(f"- 📄 {ref}")
+                        if "error" not in analysis:
+                            st.session_state.incident_analysis = analysis
+                            st.success("✅ Анализ получен")
+                        else:
+                            st.error(f"Ошибка: {analysis['error']}")
 
-                    if "new_ranks" in suggestions:
-                        st.markdown("**Предлагаемые новые ранги:**")
-                        nr = suggestions["new_ranks"]
-                        col_nr1, col_nr2 = st.columns(2)
-                        with col_nr1:
-                            # Финансовый
-                            fin_val = nr.get('fin', {}).get('value') if isinstance(nr.get('fin'), dict) else nr.get(
-                                'fin')
-                            fin_reason = nr.get('fin', {}).get('reason') if isinstance(nr.get('fin'), dict) else ""
-                            st.metric("💰 Финансовый", fin_val)
-                            if fin_reason:
-                                st.caption(fin_reason)
+                # Отображение рекомендаций ИИ
+                if st.session_state.get("incident_analysis"):
+                    analysis = st.session_state.incident_analysis
 
-                            # Операционный
-                            oper_val = nr.get('oper', {}).get('value') if isinstance(nr.get('oper'), dict) else nr.get(
-                                'oper')
-                            oper_reason = nr.get('oper', {}).get('reason') if isinstance(nr.get('oper'), dict) else ""
-                            st.metric("⚙️ Операционный", oper_val)
-                            if oper_reason:
-                                st.caption(oper_reason)
+                    with st.expander("🤖 Рекомендации ИИ по изменению параметров", expanded=True):
+                        if "summary" in analysis:
+                            st.info(f"**Общий вывод:** {analysis['summary']}")
 
-                            # Юридический
-                            jur_val = nr.get('jur', {}).get('value') if isinstance(nr.get('jur'), dict) else nr.get(
-                                'jur')
-                            jur_reason = nr.get('jur', {}).get('reason') if isinstance(nr.get('jur'), dict) else ""
-                            st.metric("⚖️ Юридический", jur_val)
-                            if jur_reason:
-                                st.caption(jur_reason)
+                        if "analysis" in analysis:
+                            for param, data in analysis["analysis"].items():
+                                if data.get("should_change"):
+                                    st.warning(f"**{param}:** требуется изменение")
+                                    st.markdown(f"*Направление:* {data.get('direction', '?')}")
+                                    st.markdown(f"*Причина:* {data.get('reason', '?')}")
+                                    if "recommendation" in data:
+                                        st.markdown(f"*Рекомендация:* {data['recommendation']}")
+                                    st.markdown("---")
 
-                        with col_nr2:
-                            # Репутационный
-                            rep_val = nr.get('rep', {}).get('value') if isinstance(nr.get('rep'), dict) else nr.get(
-                                'rep')
-                            rep_reason = nr.get('rep', {}).get('reason') if isinstance(nr.get('rep'), dict) else ""
-                            st.metric("📢 Репутационный", rep_val)
-                            if rep_reason:
-                                st.caption(rep_reason)
+                # Форма для переоценки
+                st.markdown("---")
+                st.subheader("📊 Переоценка ресурса после события")
 
-                            # Стратегический
-                            strat_val = nr.get('strat', {}).get('value') if isinstance(nr.get('strat'),
-                                                                                       dict) else nr.get('strat')
-                            strat_reason = nr.get('strat', {}).get('reason') if isinstance(nr.get('strat'),
-                                                                                           dict) else ""
-                            st.metric("🚩 Стратегический", strat_val)
-                            if strat_reason:
-                                st.caption(strat_reason)
+                last_eval = db.get_latest_evaluation(selected_res_id)
 
-            # Форма для переоценки
-            st.subheader("📊 Новая оценка после инцидента")
-
-            # Определяем значения по умолчанию для ползунков
-            default_fin = current_ranks['fin']
-            default_oper = current_ranks['oper']
-            default_jur = current_ranks['jur']
-            default_rep = current_ranks['rep']
-            default_strat = current_ranks['strat']
-
-            col_ir1, col_ir2 = st.columns(2)
-
-            with col_ir1:
-                new_fin = st.slider(
-                    "💰 Финансовый ущерб (1-8)",
-                    1, 8, int(default_fin) if default_fin else 1,
-                    key="inc_fin"
-                )
-                new_oper = st.slider(
-                    "⚙️ Операционный сбой (1-8)",
-                    1, 8, int(default_oper) if default_oper else 1,
-                    key="inc_oper"
-                )
-
-            with col_ir2:
-                new_jur = st.slider(
-                    "⚖️ Юридический риск (1-5)",
-                    1, 5, int(default_jur) if default_jur else 1,
-                    key="inc_jur"
-                )
-                new_rep = st.slider(
-                    "📢 Репутационный ущерб (1-5)",
-                    1, 5, int(default_rep) if default_rep else 1,
-                    key="inc_rep"
-                )
-                new_strat = st.slider(
-                    "🚩 Стратегический ущерб (1-5)",
-                    1, 5, int(default_strat) if default_strat else 1,
-                    key="inc_strat"
-                )
-
-            # Кнопка сохранения
-            if st.button("💾 Зафиксировать событие и переоценить",
-                         type="primary", use_container_width=True):
-                if event_name:
-                    new_ranks = {
-                        'fin': new_fin, 'oper': new_oper,
-                        'jur': new_jur, 'rep': new_rep, 'strat': new_strat
+                if last_eval:
+                    current_ranks = {
+                        'fin': last_eval[0],
+                        'oper': last_eval[1],
+                        'jur': last_eval[2],
+                        'rep': last_eval[3],
+                        'strat': last_eval[4]
                     }
 
-                    # Нормализация и итоговый ранг
-                    s_scores, total_s = logic.calculate_normalization(new_ranks)
-                    final_rank = logic.get_final_rank(total_s)
+                    st.markdown("**Текущие ранги (можно скорректировать):**")
 
-                    # Сохраняем
-                    db.save_evaluation(
-                        selected_res_id,
-                        new_ranks,
-                        total_s,
-                        final_rank,
-                        trigger=event_name
-                    )
+                    col_r1, col_r2 = st.columns(2)
 
-                    st.success(f"✅ Событие зафиксировано! Новый ранг: {final_rank}")
-                    st.session_state.ai_incident_suggestions = None
-                    st.rerun()
-                else:
-                    st.error("❌ Введите описание события")
+                    with col_r1:
+                        new_fin = st.slider("💰 Финансовый (1-10)", 1, 10, current_ranks['fin'], key="inc_fin")
+                        new_oper = st.slider("⚙️ Операционный (1-10)", 1, 10, current_ranks['oper'], key="inc_oper")
+                        new_jur = st.slider("⚖️ Юридический (1-8)", 1, 8, current_ranks['jur'], key="inc_jur")
+
+                    with col_r2:
+                        new_rep = st.slider("📢 Репутационный (1-8)", 1, 8, current_ranks['rep'], key="inc_rep")
+                        new_strat = st.slider("🚩 Стратегический (1-8)", 1, 8, current_ranks['strat'], key="inc_strat")
+
+                        if st.button("💾 Зафиксировать событие и сохранить", type="primary", use_container_width=True):
+                            if event_name:
+                                new_ranks = {
+                                    'fin': new_fin,
+                                    'oper': new_oper,
+                                    'jur': new_jur,
+                                    'rep': new_rep,
+                                    'strat': new_strat
+                                }
+
+                                s_scores, total_s = logic.calculate_normalization(new_ranks)
+                                final_rank = logic.get_final_rank(total_s)
+
+                                db.save_evaluation(
+                                    selected_res_id,
+                                    new_ranks,
+                                    total_s,
+                                    final_rank,
+                                    trigger=event_name
+                                )
+
+                                st.success(f"✅ Событие зафиксировано! Новый ранг: {final_rank}")
+                                st.session_state.incident_analysis = None
+                                st.rerun()
+                            else:
+                                st.error("❌ Введите описание события")
 
 # ============================================================================
 # ВКЛАДКА 4: БАЗА РЕСУРСОВ И ОТЧЕТЫ
@@ -1159,29 +1193,52 @@ with tab4:
     resources = db.get_all_resources_full()
 
     if resources:
-        df_res = pd.DataFrame(
-            resources,
-            columns=["ID", "Название", "Категория", "Описание", "Дата создания"]
-        )
+        # Проверяем, есть ли новые поля
+        has_new_fields = len(resources[0]) > 5 if resources else False
+
+        if has_new_fields:
+            df_res = pd.DataFrame(
+                resources,
+                columns=["ID", "Название", "Категория", "Описание", "Дата создания",
+                         "Конфиденциальность", "Пользователи", "Критичность", "Бэкап"]
+            )
+        else:
+            df_res = pd.DataFrame(
+                resources,
+                columns=["ID", "Название", "Категория", "Описание", "Дата создания"]
+            )
 
         st.dataframe(df_res, use_container_width=True)
 
         # Статистика
         st.subheader("📊 Статистика")
-        col_stat1, col_stat2, col_stat3 = st.columns(3)
+
+        stats = db.get_stats()
+
+        col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+
         with col_stat1:
-            st.metric("Всего ресурсов", len(resources))
+            st.metric("Всего ресурсов", stats.get('total_resources', 0))
         with col_stat2:
-            categories = df_res["Категория"].value_counts()
-            st.metric("Уникальных категорий", len(categories))
+            st.metric("Всего оценок", stats.get('total_evaluations', 0))
         with col_stat3:
+            st.metric("Средний ранг", stats.get('avg_final_rank', 0))
+        with col_stat4:
             st.metric("Последнее обновление", datetime.now().strftime("%d.%m.%Y"))
 
-        # Детальная информация о ресурсе
+        # Распределение по категориям
+        cat_stats = db.get_resources_by_category()
+        if cat_stats:
+            st.subheader("📊 Распределение по категориям")
+            df_cat = pd.DataFrame(cat_stats, columns=["Категория", "Количество"])
+            st.bar_chart(df_cat.set_index("Категория"))
+
+        # Детальная информация
         st.markdown("---")
         st.subheader("🔍 Детальная информация о ресурсе")
+
         res_for_detail = st.selectbox(
-            "Выберите ресурс для просмотра истории",
+            "Выберите ресурс",
             options=df_res["ID"].tolist(),
             format_func=lambda x: f"{x}: {df_res[df_res['ID'] == x]['Название'].values[0]}",
             key="res_for_detail"
@@ -1192,31 +1249,49 @@ with tab4:
             if history:
                 df_detail = pd.DataFrame(
                     history,
-                    columns=["Дата", "Событие", "Ранг", "Фин", "Опер", "Юр", "Реп", "Страт", "S∑"]
+                    columns=["Дата", "Событие", "Ранг", "Фин", "Опер", "Юр", "Реп", "Страт", "S∑", "Детали"]
                 )
-                st.dataframe(df_detail, use_container_width=True)
 
-                # Кнопка экспорта
-                csv = df_detail.to_csv(index=False).encode('utf-8')
+                display_cols = ["Дата", "Событие", "Ранг", "Фин", "Опер", "Юр", "Реп", "Страт", "S∑"]
+                st.dataframe(df_detail[display_cols], use_container_width=True)
+
+                # Экспорт
+                csv = df_detail[display_cols].to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    "📥 Скачать историю оценок (CSV)",
+                    "📥 Скачать историю (CSV)",
                     csv,
                     f"resource_{res_for_detail}_history.csv",
                     "text/csv",
                     use_container_width=True
                 )
+
+                # Детали последней оценки
+                if df_detail.iloc[-1]["Детали"]:
+                    with st.expander("📋 Детали последнего расчета"):
+                        try:
+                            details = json.loads(df_detail.iloc[-1]["Детали"])
+                            st.json(details)
+                        except:
+                            st.write(df_detail.iloc[-1]["Детали"])
             else:
                 st.info("ℹ️ Для этого ресурса еще нет оценок.")
+
+        # Кнопка оптимизации
+        if st.button("🔄 Оптимизировать базу данных"):
+            db.vacuum_db()
+            st.success("✅ База данных оптимизирована")
     else:
         st.info("ℹ️ База данных пуста")
 
-# Подвал
+# ============================================================================
+# ПОДВАЛ
+# ============================================================================
 st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: gray; padding: 10px;'>
         © 2025 Система поддержки принятия решений для оценки динамики ценности информационных ресурсов<br>
-        Разработано в рамках НИР по специальности 10.05.04
+        Разработано в рамках ВКР по специальности 10.05.04
     </div>
     """,
     unsafe_allow_html=True
