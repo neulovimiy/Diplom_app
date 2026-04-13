@@ -1,4 +1,3 @@
-# app.py (ВЕРСИЯ С БОНУСНОЙ СИСТЕМОЙ - ползунки и ИИ)
 import streamlit as st
 import pandas as pd
 import json
@@ -8,12 +7,367 @@ import modules.ai_analyst as ai
 import database as db
 import logic
 
-# Настройка страницы
+# Настройка страницы (ТОЛЬКО ОДИН РАЗ!)
 st.set_page_config(
     page_title="СППР Оценка динамики ценности ИР",
     page_icon="🛡️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
+
+st.markdown("""
+<style>
+    /* СВЕТЛЫЙ ФОН И ЧЁРНЫЙ ТЕКСТ */
+    .stApp {
+        background-color: #f5f5f5 !important;
+    }
+
+    .stApp, .stMarkdown, .stText, .stInfo, .stSuccess, .stWarning, .stError,
+    p, li, span, div, label, .stTextInput label, .stTextArea label {
+        color: #000000 !important;
+        font-size: 18px !important;
+    }
+
+    /* ЗАГОЛОВКИ */
+    h1, h2, h3, h4 {
+        color: #000000 !important;
+    }
+    h1 {
+        font-size: 2.5rem !important;
+        margin-top: 0 !important;
+        margin-bottom: 0.5rem !important;
+    }
+    h2 {
+        font-size: 1.8rem !important;
+        margin-top: 0 !important;
+        margin-bottom: 0.5rem !important;
+    }
+
+    /* ТАБЫ */
+    .stTabs [data-baseweb="tab"] {
+        font-size: 1rem !important;
+        font-weight: 600 !important;
+        color: #000000 !important;
+        background-color: #e0e0e0 !important;
+        border-radius: 8px 8px 0 0 !important;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.5rem !important;
+    }
+
+    /* КНОПКИ */
+    .stButton button {
+        font-size: 1rem !important;
+        font-weight: 600 !important;
+        padding: 0.5rem 1rem !important;
+        border-radius: 8px !important;
+        background-color: #4CAF50 !important;
+        color: white !important;
+        border: none !important;
+    }
+    .stButton button:hover {
+        background-color: #45a049 !important;
+    }
+
+    /* МЕТРИКИ */
+    [data-testid="stMetricValue"] {
+        font-size: 2rem !important;
+        font-weight: 800 !important;
+        color: #000000 !important;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 1rem !important;
+        color: #333333 !important;
+    }
+    [data-testid="stMetricDelta"] {
+        color: #333333 !important;
+    }
+
+    /* ПОЛЯ ВВОДА */
+    .stTextInput input, .stTextArea textarea, .stSelectbox select {
+        font-size: 1rem !important;
+        padding: 0.5rem !important;
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border: 1px solid #cccccc !important;
+        border-radius: 6px !important;
+    }
+
+    /* ЛЕЙБЛЫ */
+    .stTextInput label, .stTextArea label, .stSelectbox label, .stSlider label {
+        font-size: 1rem !important;
+        font-weight: 600 !important;
+        color: #000000 !important;
+    }
+
+    /* СЛАЙДЕРЫ */
+    .stSlider {
+        padding: 0.5rem 0 !important;
+    }
+
+    /* ТАБЛИЦЫ */
+    .stTable td, .stTable th, .dataframe td, .dataframe th {
+        font-size: 14px !important;
+        padding: 8px 10px !important;
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border: 1px solid #dddddd !important;
+    }
+
+    /* EXPANDER */
+    .streamlit-expanderHeader {
+        font-size: 1rem !important;
+        font-weight: 600 !important;
+        background-color: #e8e8e8 !important;
+        color: #000000 !important;
+        border-radius: 8px !important;
+    }
+    .streamlit-expanderContent {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border-radius: 8px !important;
+    }
+
+    /* ИНФО БЛОКИ */
+    .stInfo {
+        background-color: #d9edf7 !important;
+        color: #000000 !important;
+        border-left: 4px solid #31708f !important;
+    }
+    .stSuccess {
+        background-color: #dff0d8 !important;
+        color: #000000 !important;
+        border-left: 4px solid #3c763d !important;
+    }
+    .stWarning {
+        background-color: #fcf8e3 !important;
+        color: #000000 !important;
+        border-left: 4px solid #8a6d3b !important;
+    }
+    .stError {
+        background-color: #f2dede !important;
+        color: #000000 !important;
+        border-left: 4px solid #a94442 !important;
+    }
+
+    /* КАРТОЧКИ РЕЗУЛЬТАТОВ */
+    .result-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1rem;
+        border-radius: 1rem;
+        text-align: center;
+    }
+    .result-card h4 {
+        font-size: 0.9rem !important;
+        color: white !important;
+    }
+    .result-card p {
+        font-size: 1.8rem !important;
+        font-weight: bold;
+        color: white !important;
+    }
+
+    /* КАРТОЧКИ РИСКОВ */
+    .risk-card {
+        background: #f0f2f6 !important;
+        padding: 0.8rem;
+        border-radius: 10px;
+        border-left: 4px solid;
+        color: #000000 !important;
+    }
+    .risk-card strong {
+        font-size: 0.9rem !important;
+        color: #000000 !important;
+    }
+    .risk-card span {
+        font-size: 1.5rem !important;
+        font-weight: bold;
+        color: #000000 !important;
+    }
+
+    /* ПОДВАЛ */
+    footer {
+        font-size: 0.8rem !important;
+        color: #666666 !important;
+    }
+
+    /* БЛОКИ */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 0 !important;
+    }
+
+    /* ВСПЛЫВАЮЩИЕ УВЕДОМЛЕНИЯ */
+    .stToast {
+        background-color: #4CAF50 !important;
+        color: white !important;
+    }
+    .stSelectbox div[data-baseweb="select"] > div,
+    .stSelectbox ul,
+    .stSelectbox div[role="listbox"],
+    div[data-baseweb="select"] div {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+    
+    /* Выпадающий список */
+    .stSelectbox div[data-baseweb="select"] ul {
+        background-color: #ffffff !important;
+    }
+    
+    /* Элементы выпадающего списка */
+    .stSelectbox li {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+    
+    .stSelectbox li:hover {
+        background-color: #e0e0e0 !important;
+    }
+    
+    /* Текст в выбранном элементе */
+    .stSelectbox div[data-baseweb="select"] div {
+        color: #000000 !important;
+    }
+    
+    /* Радиокнопки и чекбоксы */
+    .stRadio div, .stCheckbox div {
+        background-color: transparent !important;
+    }
+    
+    /* Слайдеры */
+    .stSlider div {
+        background-color: transparent !important;
+    }
+    
+    /* Date input */
+    .stDateInput input {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+    
+    /* Number input */
+    .stNumberInput input {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+    
+    /* Tabs фон */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: transparent !important;
+    }
+    
+    /* Выбранный таб */
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background-color: #4CAF50 !important;
+        color: white !important;
+    }
+    
+    /* Невыбранный таб */
+    .stTabs [data-baseweb="tab"] {
+        background-color: #e0e0e0 !important;
+        color: #000000 !important;
+    }
+    
+    /* Selectbox стрелка */
+    .stSelectbox svg {
+        fill: #000000 !important;
+    }
+    
+    /* Инпуты */
+    .stTextInput input, .stTextArea textarea {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+    
+    /* Селектор ресурса (специально) */
+    div[data-testid="stSelectbox"] label {
+        color: #000000 !important;
+    }
+    
+    /* Контейнер выбора ресурса */
+    .stSelectbox [data-baseweb="select"] {
+        background-color: #ffffff !important;
+    }
+    /* Основной контейнер выпадающего списка */
+    div[data-baseweb="popover"] {
+        background-color: #ffffff !important;
+        border: 1px solid #cccccc !important;
+        border-radius: 8px !important;
+    }
+    
+    /* Список внутри выпадающего окна */
+    div[data-baseweb="popover"] ul {
+        background-color: #ffffff !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    
+    /* Элементы списка */
+    div[data-baseweb="popover"] li {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        padding: 8px 12px !important;
+        cursor: pointer !important;
+    }
+    
+    /* Элементы списка при наведении */
+    div[data-baseweb="popover"] li:hover {
+        background-color: #e0e0e0 !important;
+    }
+    
+    /* Выбранный элемент в списке */
+    div[data-baseweb="popover"] li[aria-selected="true"] {
+        background-color: #4CAF50 !important;
+        color: white !important;
+    }
+    
+    /* Контейнер выбранного значения */
+    div[data-baseweb="select"] div[aria-selected="true"] {
+        background-color: #4CAF50 !important;
+        color: white !important;
+    }
+    
+    /* Затемнение фона (backdrop) */
+    div[data-radix-portal] {
+        background-color: rgba(0,0,0,0.1) !important;
+    }
+    
+    /* Все popup окна Streamlit */
+    .stPopover, .stTooltip, .stTooltipContent {
+        background-color: #ffffff !important;
+        border: 1px solid #cccccc !important;
+    }
+    
+    /* Date picker */
+    div[data-baseweb="calendar"] {
+        background-color: #ffffff !important;
+    }
+    div[data-baseweb="calendar"] div {
+        color: #000000 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Функция для создания красивых карточек рисков
+def display_risk_card(title, value, max_val, color_class):
+    st.markdown(f"""
+    <div class="risk-card {color_class}">
+        <strong>{title}</strong><br>
+        <span style="font-size: 1.8rem; font-weight: bold;">{value}</span>
+        <span style="font-size: 1rem;">/{max_val}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# Функция для создания красивой метрики
+def display_metric(label, value, unit=""):
+    st.markdown(f"""
+    <div class="result-card">
+        <h4>{label}</h4>
+        <p>{value}{unit}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ============================================================================
@@ -569,13 +923,12 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # ============================================================================
 # ВКЛАДКА 1: РЕГИСТРАЦИЯ НОВОГО РЕСУРСА
 # ============================================================================
+# Вкладка 1
 with tab1:
-    st.header("📝 Регистрация нового информационного ресурса")
-
     col1, col2 = st.columns([1, 1])
 
     with col1:
-        st.subheader("📋 Исходные данные")
+        st.markdown("**📋 Исходные данные**")
 
         resource_name = st.text_input(
             "Название ресурса *",
@@ -586,7 +939,7 @@ with tab1:
         resource_desc = st.text_area(
             "Описание ресурса",
             placeholder="Опишите назначение, содержание, кто работает с ресурсом, срок хранения, формат данных, количество пользователей...",
-            height=200,
+            height=150,
             key="input_desc"
         )
 
@@ -595,18 +948,18 @@ with tab1:
             ai_request_btn = st.button(
                 "🤖 Запросить рекомендации ИИ",
                 type="secondary",
-                use_container_width=True,
+                width="stretch",
                 disabled=not (resource_name and resource_desc)
             )
         with col_ai_status:
             if st.session_state.ai_suggestions:
                 st.success("✅ Рекомендации получены")
             else:
-                st.info("⏳ ИИ проанализирует описание и найдет связи с нормативными документами")
+                st.info("⏳ ИИ проанализирует описание")
 
         # Обработка запроса к ИИ
         if ai_request_btn and resource_name and resource_desc:
-            with st.spinner("🔍 ИИ анализирует описание и нормативные документы..."):
+            with st.spinner("🔍 ИИ анализирует..."):
                 analysis = ai.suggest_parameters(resource_name, resource_desc)
 
                 if "error" not in analysis:
@@ -619,72 +972,45 @@ with tab1:
                     st.session_state.resource_saved = False
                     st.rerun()
                 else:
-                    st.error(f"Ошибка при анализе: {analysis['error']}")
+                    st.error(f"Ошибка: {analysis['error']}")
 
         if st.session_state.ai_suggestions:
             with st.expander("🤖 Рекомендации ИИ-ассистента", expanded=True):
                 if st.session_state.ai_summary:
                     st.markdown(f"**📝 Резюме:** {st.session_state.ai_summary}")
 
-                if st.session_state.ai_law_refs:
-                    st.markdown("**📚 Нормативные документы:**")
-                    for ref in st.session_state.ai_law_refs[:5]:
-                        st.markdown(f"- 📄 `{ref}`")
-
-                st.markdown("**💡 Рекомендации по параметрам:**")
                 suggestions = st.session_state.ai_suggestions
 
                 col_rec1, col_rec2 = st.columns(2)
                 with col_rec1:
                     if "access_category" in suggestions:
                         acc = suggestions["access_category"]
-                        rus_value = RUSSIAN_ACCESS.get(acc.get('value', 'public'), acc.get('value', 'public'))
-                        st.info(f"**Доступ:** {rus_value}\n\n*{acc.get('reason', '')}*")
-
+                        st.info(
+                            f"**Доступ:** {RUSSIAN_ACCESS.get(acc.get('value', 'public'), acc.get('value', 'public'))}\n\n*{acc.get('reason', '')}*")
                     if "resource_type" in suggestions:
                         rt = suggestions["resource_type"]
-                        rus_value = RUSSIAN_TYPE.get(rt.get('value', 'unknown'), rt.get('value', 'unknown'))
-                        st.info(f"**Тип:** {rus_value}\n\n*{rt.get('reason', '')}*")
-
+                        st.info(
+                            f"**Тип:** {RUSSIAN_TYPE.get(rt.get('value', 'unknown'), rt.get('value', 'unknown'))}\n\n*{rt.get('reason', '')}*")
                     if "lifecycle" in suggestions:
                         lc = suggestions["lifecycle"]
-                        rus_value = RUSSIAN_LIFE.get(lc.get('value', 'unknown'), lc.get('value', 'unknown'))
-                        st.info(f"**Жизненный цикл:** {rus_value}\n\n*{lc.get('reason', '')}*")
-
-                    if "data_format" in suggestions:
-                        df = suggestions["data_format"]
-                        rus_value = RUSSIAN_FORMAT.get(df.get('value', 'unknown'), df.get('value', 'unknown'))
-                        st.info(f"**Формат:** {rus_value}\n\n*{df.get('reason', '')}*")
-
+                        st.info(
+                            f"**Жизненный цикл:** {RUSSIAN_LIFE.get(lc.get('value', 'unknown'), lc.get('value', 'unknown'))}\n\n*{lc.get('reason', '')}*")
                 with col_rec2:
                     if "usage_scale" in suggestions:
                         us = suggestions["usage_scale"]
-                        rus_value = RUSSIAN_SCALE.get(us.get('value', 'unknown'), us.get('value', 'unknown'))
-                        st.info(f"**Масштаб:** {rus_value}\n\n*{us.get('reason', '')}*")
-
+                        st.info(
+                            f"**Масштаб:** {RUSSIAN_SCALE.get(us.get('value', 'unknown'), us.get('value', 'unknown'))}\n\n*{us.get('reason', '')}*")
                     if "confidentiality" in suggestions:
                         conf = suggestions["confidentiality"]
-                        rus_value = RUSSIAN_CONFIDENTIALITY.get(conf.get('value', 'unknown'),
-                                                                conf.get('value', 'unknown'))
-                        st.info(f"**Конфиденциальность:** {rus_value}\n\n*{conf.get('reason', '')}*")
-
+                        st.info(
+                            f"**Конфиденциальность:** {RUSSIAN_CONFIDENTIALITY.get(conf.get('value', 'unknown'), conf.get('value', 'unknown'))}\n\n*{conf.get('reason', '')}*")
                     if "users_count" in suggestions:
                         users = suggestions["users_count"]
-                        rus_value = RUSSIAN_USERS.get(users.get('value', 'unknown'), users.get('value', 'unknown'))
-                        st.info(f"**Пользователей:** {rus_value}\n\n*{users.get('reason', '')}*")
-
-                    if "business_criticality" in suggestions:
-                        crit = suggestions["business_criticality"]
-                        rus_value = RUSSIAN_CRITICALITY.get(crit.get('value', 'unknown'), crit.get('value', 'unknown'))
-                        st.info(f"**Критичность:** {rus_value}\n\n*{crit.get('reason', '')}*")
-
-                    if "backup" in suggestions:
-                        backup = suggestions["backup"]
-                        rus_value = RUSSIAN_BACKUP.get(backup.get('value', 'unknown'), backup.get('value', 'unknown'))
-                        st.info(f"**Бэкап:** {rus_value}\n\n*{backup.get('reason', '')}*")
+                        st.info(
+                            f"**Пользователей:** {RUSSIAN_USERS.get(users.get('value', 'unknown'), users.get('value', 'unknown'))}\n\n*{users.get('reason', '')}*")
 
     with col2:
-        st.subheader("⚙️ Параметры классификации")
+        st.markdown("**⚙️ Параметры классификации**")
 
         suggested_access = suggested_type = suggested_life = suggested_format = None
         suggested_scale = suggested_conf = suggested_users = suggested_crit = suggested_backup = None
@@ -700,137 +1026,94 @@ with tab1:
             suggested_crit = st.session_state.ai_suggestions.get("business_criticality", {}).get("value")
             suggested_backup = st.session_state.ai_suggestions.get("backup", {}).get("value")
 
-        st.markdown("**📌 Основные параметры:**")
+        st.markdown("**Основные параметры:**")
         col_a1, col_a2 = st.columns(2)
 
         with col_a1:
-            access_options = list(RUSSIAN_ACCESS.keys())
-            default_idx = 0
-            if suggested_access and suggested_access in access_options:
-                default_idx = access_options.index(suggested_access)
             sel_access = st.selectbox(
                 "Категория доступа *",
-                options=access_options,
+                options=list(RUSSIAN_ACCESS.keys()),
                 format_func=lambda x: RUSSIAN_ACCESS[x],
-                index=default_idx,
+                index=0 if not suggested_access else list(RUSSIAN_ACCESS.keys()).index(
+                    suggested_access) if suggested_access in RUSSIAN_ACCESS else 0,
                 key="expert_access"
             )
-
-            type_options = list(RUSSIAN_TYPE.keys())
-            default_idx = 0
-            if suggested_type and suggested_type in type_options:
-                default_idx = type_options.index(suggested_type)
             sel_type = st.selectbox(
                 "Тип ресурса *",
-                options=type_options,
+                options=list(RUSSIAN_TYPE.keys()),
                 format_func=lambda x: RUSSIAN_TYPE[x],
-                index=default_idx,
+                index=0 if not suggested_type else list(RUSSIAN_TYPE.keys()).index(
+                    suggested_type) if suggested_type in RUSSIAN_TYPE else 0,
                 key="expert_type"
             )
-
-            life_options = list(RUSSIAN_LIFE.keys())
-            default_idx = 0
-            if suggested_life and suggested_life in life_options:
-                default_idx = life_options.index(suggested_life)
             sel_life = st.selectbox(
                 "Жизненный цикл *",
-                options=life_options,
+                options=list(RUSSIAN_LIFE.keys()),
                 format_func=lambda x: RUSSIAN_LIFE[x],
-                index=default_idx,
+                index=0 if not suggested_life else list(RUSSIAN_LIFE.keys()).index(
+                    suggested_life) if suggested_life in RUSSIAN_LIFE else 0,
                 key="expert_life"
             )
 
         with col_a2:
-            format_options = list(RUSSIAN_FORMAT.keys())
-            default_idx = 0
-            if suggested_format and suggested_format in format_options:
-                default_idx = format_options.index(suggested_format)
             sel_format = st.selectbox(
                 "Формат данных *",
-                options=format_options,
+                options=list(RUSSIAN_FORMAT.keys()),
                 format_func=lambda x: RUSSIAN_FORMAT[x],
-                index=default_idx,
+                index=0 if not suggested_format else list(RUSSIAN_FORMAT.keys()).index(
+                    suggested_format) if suggested_format in RUSSIAN_FORMAT else 0,
                 key="expert_format"
             )
-
-            scale_options = list(RUSSIAN_SCALE.keys())
-            default_idx = 0
-            if suggested_scale and suggested_scale in scale_options:
-                default_idx = scale_options.index(suggested_scale)
             sel_scale = st.selectbox(
                 "Масштаб использования *",
-                options=scale_options,
+                options=list(RUSSIAN_SCALE.keys()),
                 format_func=lambda x: RUSSIAN_SCALE[x],
-                index=default_idx,
+                index=0 if not suggested_scale else list(RUSSIAN_SCALE.keys()).index(
+                    suggested_scale) if suggested_scale in RUSSIAN_SCALE else 0,
                 key="expert_scale"
             )
 
-        st.markdown("---")
         st.markdown("**🔍 Дополнительные параметры:**")
-
         col_new1, col_new2 = st.columns(2)
 
         with col_new1:
-            conf_options = list(RUSSIAN_CONFIDENTIALITY.keys())
-            default_conf_idx = 0
-            if suggested_conf and suggested_conf in conf_options:
-                default_conf_idx = conf_options.index(suggested_conf)
             sel_conf = st.selectbox(
                 "Уровень конфиденциальности",
-                options=conf_options,
+                options=list(RUSSIAN_CONFIDENTIALITY.keys()),
                 format_func=lambda x: RUSSIAN_CONFIDENTIALITY[x],
-                index=default_conf_idx,
+                index=0 if not suggested_conf else list(RUSSIAN_CONFIDENTIALITY.keys()).index(
+                    suggested_conf) if suggested_conf in RUSSIAN_CONFIDENTIALITY else 0,
                 key="expert_conf"
             )
-
-            users_options = list(RUSSIAN_USERS.keys())
-            default_users_idx = 0
-            if suggested_users and suggested_users in users_options:
-                default_users_idx = users_options.index(suggested_users)
             sel_users = st.selectbox(
                 "Количество пользователей",
-                options=users_options,
+                options=list(RUSSIAN_USERS.keys()),
                 format_func=lambda x: RUSSIAN_USERS[x],
-                index=default_users_idx,
+                index=0 if not suggested_users else list(RUSSIAN_USERS.keys()).index(
+                    suggested_users) if suggested_users in RUSSIAN_USERS else 0,
                 key="expert_users"
             )
 
         with col_new2:
-            crit_options = list(RUSSIAN_CRITICALITY.keys())
-            default_crit_idx = 0
-            if suggested_crit and suggested_crit in crit_options:
-                default_crit_idx = crit_options.index(suggested_crit)
             sel_crit = st.selectbox(
                 "Критичность для бизнеса",
-                options=crit_options,
+                options=list(RUSSIAN_CRITICALITY.keys()),
                 format_func=lambda x: RUSSIAN_CRITICALITY[x],
-                index=default_crit_idx,
+                index=0 if not suggested_crit else list(RUSSIAN_CRITICALITY.keys()).index(
+                    suggested_crit) if suggested_crit in RUSSIAN_CRITICALITY else 0,
                 key="expert_crit"
             )
-
-            backup_options = list(RUSSIAN_BACKUP.keys())
-            default_backup_idx = 0
-            if suggested_backup and suggested_backup in backup_options:
-                default_backup_idx = backup_options.index(suggested_backup)
             sel_backup = st.selectbox(
                 "Резервное копирование",
-                options=backup_options,
+                options=list(RUSSIAN_BACKUP.keys()),
                 format_func=lambda x: RUSSIAN_BACKUP[x],
-                index=default_backup_idx,
+                index=0 if not suggested_backup else list(RUSSIAN_BACKUP.keys()).index(
+                    suggested_backup) if suggested_backup in RUSSIAN_BACKUP else 0,
                 key="expert_backup"
             )
 
         st.markdown("---")
-        col_save1, col_save2, col_save3 = st.columns([1, 1, 1])
-        with col_save2:
-            save_resource_btn = st.button(
-                "💾 Сохранить ресурс",
-                type="primary",
-                use_container_width=True,
-                disabled=not resource_name
-            )
-
-        if save_resource_btn and resource_name:
+        if st.button("💾 Сохранить ресурс", type="primary", width="stretch", disabled=not resource_name):
             res_id = db.add_resource(
                 name=resource_name,
                 description=resource_desc,
@@ -848,14 +1131,21 @@ with tab1:
             st.session_state.resource_saved = True
             st.session_state.selected_resource_for_analysis = res_id
 
-            st.toast(f"✅ Ресурс '{resource_name}' сохранён! ID: {res_id}", icon="✅")
+            st.toast(f"✅ Ресурс сохранён! ID: {res_id}", icon="✅")
             st.success(f"✅ Ресурс '{resource_name}' успешно сохранен! ID: {res_id}")
             st.balloons()
+            import time
+
+            time.sleep(1.5)
+            st.rerun()
 
 # ============================================================================
 # ВКЛАДКА 2: АНАЛИЗ РАНГА СОХРАНЕННОГО РЕСУРСА (с ползунками и ИИ)
 # ============================================================================
 with tab2:
+    st.markdown("<h2 style='font-size: 2.2rem;'>📊 Анализ ранга сохраненного ресурса</h2>", unsafe_allow_html=True)
+    st.markdown("<h3 style='font-size: 1.8rem;'>📋 Параметры ресурса</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='font-size: 1.8rem;'>⚙️ Экспертная оценка</h3>", unsafe_allow_html=True)
     st.header("📊 Анализ ранга сохраненного ресурса")
 
     resources = db.get_all_resources_full()
@@ -1153,6 +1443,7 @@ with tab2:
                                     st.markdown("---")
 
                 # ========== ОБРАБОТКА: ПРЯМОЕ СОХРАНЕНИЕ ==========
+                # ========== ОБРАБОТКА: ПРЯМОЕ СОХРАНЕНИЕ ==========
                 if save_direct_btn:
                     expert_ranks = {
                         'fin': expert_fin,
@@ -1181,10 +1472,15 @@ with tab2:
                         details=details
                     )
 
+                    # Уведомления
+                    st.toast(f"✅ Оценка сохранена! Итоговый ранг: {final_rank}", icon="✅")
                     st.success(f"✅ Оценка сохранена! Итоговый ранг: {final_rank}")
                     st.balloons()
-                    st.rerun()
 
+                    import time
+
+                    time.sleep(1.5)
+                    st.rerun()
                 # ========== ОБРАБОТКА: РАСЧЁТ ИТОГОВОГО РАНГА (только цифры) ==========
                 if calculate_expert_btn:
                     expert_ranks = {
@@ -1226,13 +1522,14 @@ with tab2:
                     with col_m5:
                         st.metric("🚩 Стратегический", f"{result['expert_ranks']['strat']}/8")
 
+
                     col_i1, col_i2, col_i3 = st.columns(3)
                     with col_i1:
-                        st.metric("📈 Интегральный S∑", f"{result['total_s']:.3f}")
+                        display_metric("📈 Интегральный S∑", f"{total_s:.3f}")
                     with col_i2:
-                        st.metric("🏆 Итоговый ранг", f"{result['final_rank']}")
+                        display_metric("🏆 Итоговый ранг", str(final_rank))
                     with col_i3:
-                        st.metric("🛡️ Уровень защиты", result['protection_level'])
+                        display_metric("🛡️ Уровень защиты", protection_level)
 
                     # Детали нормализации
                     with st.expander("📐 Детали нормализации (S)", expanded=False):
@@ -1260,7 +1557,7 @@ with tab2:
                     st.markdown("---")
                     col_save1, col_save2, col_save3 = st.columns([1, 1, 1])
                     with col_save2:
-                        if st.button("💾 Сохранить оценку в историю", use_container_width=True):
+                        if st.button("💾 Сохранить оценку в историю", width="stretch"):
                             details = {
                                 'expert_ranks': result['expert_ranks'],
                                 's_scores': result['s_scores'],
@@ -1277,16 +1574,21 @@ with tab2:
                                 details=details
                             )
 
-                            # Двойное оповещение
                             st.toast(f"✅ Оценка сохранена! Итоговый ранг: {result['final_rank']}", icon="✅")
                             st.success(f"✅ Оценка сохранена! Итоговый ранг: {result['final_rank']}")
                             st.balloons()
+
+                            import time
+
+                            time.sleep(1.5)
                             st.rerun()
 
 # ============================================================================
 # ВКЛАДКА 3: ДИНАМИКА И ИНЦИДЕНТЫ
 # ============================================================================
 with tab3:
+    st.markdown("<h2 style='font-size: 2.2rem;'>⚡ Анализ динамики ценности при инцидентах</h2>", unsafe_allow_html=True)
+    st.markdown("<h3 style='font-size: 1.8rem;'>📈 Динамика изменения ценности</h3>", unsafe_allow_html=True)
     st.header("⚡ Анализ динамики ценности при инцидентах")
 
     resources = db.get_all_resources_full()
@@ -1430,18 +1732,32 @@ with tab3:
                     }
 
                     st.markdown("**Текущие ранги (можно скорректировать):**")
-                    col_r1, col_r2 = st.columns(2)
+                    st.markdown("**Текущие ранги (можно скорректировать):**")
+                    col_r1, col_r2, col_r3, col_r4, col_r5 = st.columns(5)
+                    with col_r1:
+                        st.metric("💰 Финансовый", f"{current_ranks['fin']}/10")
+                    with col_r2:
+                        st.metric("⚙️ Операционный", f"{current_ranks['oper']}/10")
+                    with col_r3:
+                        st.metric("⚖️ Юридический", f"{current_ranks['jur']}/8")
+                    with col_r4:
+                        st.metric("📢 Репутационный", f"{current_ranks['rep']}/8")
+                    with col_r5:
+                        st.metric("🚩 Стратегический", f"{current_ranks['strat']}/8")
 
+                    st.markdown("---")
+                    st.subheader("📊 Корректировка рангов после события")
+
+                    col_r1, col_r2 = st.columns(2)
                     with col_r1:
                         new_fin = st.slider("💰 Финансовый (1-10)", 1, 10, current_ranks['fin'], key="inc_fin")
                         new_oper = st.slider("⚙️ Операционный (1-10)", 1, 10, current_ranks['oper'], key="inc_oper")
                         new_jur = st.slider("⚖️ Юридический (1-8)", 1, 8, current_ranks['jur'], key="inc_jur")
-
                     with col_r2:
                         new_rep = st.slider("📢 Репутационный (1-8)", 1, 8, current_ranks['rep'], key="inc_rep")
                         new_strat = st.slider("🚩 Стратегический (1-8)", 1, 8, current_ranks['strat'], key="inc_strat")
 
-                    if st.button("💾 Зафиксировать событие и сохранить", type="primary", use_container_width=True):
+                    if st.button("💾 Зафиксировать событие и сохранить", type="primary", width="stretch"):
                         if event_name:
                             new_ranks = {
                                 'fin': new_fin,
@@ -1456,11 +1772,15 @@ with tab3:
                                 selected_res_id, new_ranks, total_s, final_rank, trigger=event_name
                             )
 
-                            # Двойное оповещение
                             st.toast(f"✅ Событие зафиксировано! Новый ранг: {final_rank}", icon="✅")
                             st.success(f"✅ Событие зафиксировано! Новый ранг: {final_rank}")
                             st.balloons()
+
                             st.session_state.incident_analysis = None
+
+                            import time
+
+                            time.sleep(1.5)
                             st.rerun()
                         else:
                             st.error("❌ Введите описание события")
@@ -1470,6 +1790,7 @@ with tab3:
 # ВКЛАДКА 4: БАЗА РЕСУРСОВ И ОТЧЕТЫ
 # ============================================================================
 with tab4:
+    st.markdown("<h2 style='font-size: 2.2rem;'>📚 База информационных ресурсов и отчеты</h2>", unsafe_allow_html=True)
     st.header("📚 База информационных ресурсов и отчеты")
 
     resources = db.get_all_resources_full()
