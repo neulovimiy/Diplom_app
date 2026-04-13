@@ -9,7 +9,7 @@ from typing import Dict, List, Any
 
 DB_FAISS_PATH = "vectorstore/db_faiss"
 
-# Словари для перевода (это эталонные значения)
+# Словари для перевода
 ACCESS_CATEGORIES = {
     "public": "📢 Общедоступная",
     "internal": "🏢 Внутренняя (ДСП)",
@@ -87,6 +87,8 @@ BACKUP = {
 }
 
 
+# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
+
 def clean_json_string(json_str):
     json_str = re.sub(r'^.*?({)', r'\1', json_str, flags=re.DOTALL)
     json_str = re.sub(r'}([^}]*)$', r'}', json_str, flags=re.DOTALL)
@@ -94,12 +96,48 @@ def clean_json_string(json_str):
 
 
 def extract_json(text):
-    match = re.search(r'(\{.*\})', text, re.DOTALL)
+    """Извлекает JSON из текста, даже если есть лишний текст вокруг"""
+    if not text:
+        return None
+
+    # Пробуем найти JSON между фигурными скобками
+    match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group(1))
         except:
-            return json.loads(clean_json_string(match.group(1)))
+            pass
+
+    # Пробуем найти JSON с вложенными скобками
+    brace_count = 0
+    start_idx = -1
+    for i, char in enumerate(text):
+        if char == '{':
+            if brace_count == 0:
+                start_idx = i
+            brace_count += 1
+        elif char == '}':
+            brace_count -= 1
+            if brace_count == 0 and start_idx != -1:
+                try:
+                    candidate = text[start_idx:i + 1]
+                    return json.loads(candidate)
+                except:
+                    continue
+
+    # Если ничего не нашли, пробуем очистить текст от markdown и лишнего
+    cleaned = re.sub(r'```json\s*', '', text)
+    cleaned = re.sub(r'```\s*$', '', cleaned)
+    cleaned = re.sub(r'^[^{]*', '', cleaned)
+    cleaned = re.sub(r'[^}]*$', '', cleaned)
+
+    try:
+        return json.loads(cleaned)
+    except:
+        pass
+
+    # Логируем ошибку для отладки
+    print(f"JSON parse failed. Raw response first 500 chars: {text[:500]}")
     return None
 
 
@@ -113,97 +151,44 @@ def get_relevant_documents(query: str, k: int = 10) -> List[Dict]:
              "content": d.page_content} for d in docs]
 
 
+# ========== ФУНКЦИЯ 1: РЕКОМЕНДАЦИИ ПАРАМЕТРОВ (для вкладки 1) ==========
+
 def suggest_parameters(resource_name: str, resource_desc: str) -> Dict[str, Any]:
+    """Анализирует описание ресурса и рекомендует параметры классификации"""
+
     docs = get_relevant_documents(f"{resource_name} {resource_desc}", k=10)
     context = "\n\n".join([f"ФАЙЛ: {d['filename']}\nТЕКСТ: {d['content'][:800]}" for d in docs])
 
-    llm = Ollama(model="rscr/ruadapt_qwen2.5_32b:Q4_K_M", temperature=0.1)  # или deepseek-r1:14b / qwen2.5:14b
+    llm = Ollama(model="qwen2.5:14b", temperature=0.1)
 
     template = """
-    Ты — эксперт-аналитик по информационной безопасности. Твоя задача — извлечь факты из описания и строго следовать им.
+    Ты — эксперт по информационной безопасности.
 
     Информационный ресурс: "{resource_name}"
-    ОПИСАНИЕ:
-    {resource_desc}
+    ОПИСАНИЕ: {resource_desc}
 
-    Контекст из документов:
-    {context}
+    Контекст из документов: {context}
 
-    Проанализируй описание и выбери значения ТОЛЬКО из указанных списков:
+    ВЫБЕРИ ЗНАЧЕНИЯ ТОЛЬКО ИЗ ЭТИХ СПИСКОВ (английские ключи):
 
-    ДОСТУПНЫЕ ЗНАЧЕНИЯ:
+    1. access_category: public, internal, personal_data, trade_secret, state_secret, copyright
+    2. resource_type: unknown, software, database, financial, document, config, media  
+    3. lifecycle: unknown, short_term, medium_term, long_term
+    4. data_format: unknown, structured, source_code, text, archive, multimedia
+    5. usage_scale: unknown, local, department, enterprise
+    6. confidentiality: unknown, open, internal, confidential, secret, top_secret
+    7. users_count: unknown, 1-10, 11-100, 101-1000, 1001-10000, 10000+
+    8. business_criticality: unknown, low, medium, high, critical
+    9. backup: unknown, daily, weekly, monthly, none
 
-    1. access_category:
-       public - Общедоступная
-       internal - Внутренняя (ДСП)
-       personal_data - Персональные данные (ПДн)
-       trade_secret - Коммерческая тайна (КТ)
-       state_secret - Государственная тайна
-       copyright - Интеллектуальная собственность
+    ПРАВИЛА ВЫБОРА:
+    - confidentiality: "secret" и "top_secret" ТОЛЬКО если явно указана государственная тайна
+    - users_count: учитывай всех сотрудников, не только явно указанных
+    - backup: если сказано "ежедневный" → "daily"
 
-    2. resource_type:
-       unknown - Неизвестно
-       software - Программное обеспечение
-       database - База данных
-       financial - Финансовая отчетность
-       document - Текстовая документация
-       config - Конфигурационные файлы
-       media - Мультимедиа
+    Верни ТОЛЬКО JSON. Без пояснений. Без markdown. Начинай с {{ и заканчивай }}.
 
-    3. lifecycle:
-       unknown - Неизвестно
-       short_term - Краткосрочный (дни/месяцы)
-       medium_term - Среднесрочный (до 1 года)
-       long_term - Долгосрочный (более 1 года)
-
-    4. data_format:
-       unknown - Неизвестно
-       structured - Структурированные (БД/JSON)
-       source_code - Исходный код
-       text - Текстовые документы
-       archive - Архивы
-       multimedia - Мультимедиа
-
-    5. usage_scale:
-       unknown - Неизвестно
-       local - Локальный
-       department - Уровень отдела
-       enterprise - Масштаб предприятия
-
-    6. confidentiality:
-       unknown - Неизвестно
-       open - Открытая информация
-       internal - Для внутреннего пользования
-       confidential - Конфиденциально
-       secret - Секретно
-       top_secret - Особой важности
-
-    7. users_count:
-       unknown - Неизвестно
-       1-10 - 1-10 пользователей
-       11-100 - 11-100 пользователей
-       101-1000 - 101-1000 пользователей
-       1001-10000 - 1001-10000 пользователей
-       10000+ - Более 10000 пользователей
-
-    8. business_criticality:
-       unknown - Неизвестно
-       low - Низкая
-       medium - Средняя
-       high - Высокая
-       critical - Критическая
-
-    9. backup:
-       unknown - Неизвестно
-       daily - Ежедневный
-       weekly - Еженедельный
-       monthly - Ежемесячный
-       none - Отсутствует
-
-    В поле "value" ставь английский ключ (например, "trade_secret", "database").
-    В поле "reason" напиши краткое обоснование на русском языке.
-
-    Верни JSON в формате:
+    Формат:
     {{
       "suggestions": {{
         "access_category": {{"value": "...", "reason": "..."}},
@@ -216,27 +201,87 @@ def suggest_parameters(resource_name: str, resource_desc: str) -> Dict[str, Any]
         "business_criticality": {{"value": "...", "reason": "..."}},
         "backup": {{"value": "...", "reason": "..."}}
       }},
-      "law_refs": [],
-      "summary": "Краткое резюме на русском"
+      "summary": "Краткое резюме (1 предложение)"
     }}
     """
 
     prompt = PromptTemplate.from_template(template)
-    response = llm.invoke(prompt.format(
-        resource_name=resource_name,
-        resource_desc=resource_desc,
-        context=context
-    ))
 
+    try:
+        response = llm.invoke(prompt.format(
+            resource_name=resource_name,
+            resource_desc=resource_desc,
+            context=context
+        ))
+    except Exception as e:
+        return {"error": f"Ошибка подключения к Ollama: {e}. Убедитесь, что Ollama запущен (ollama serve)"}
+
+    # Парсим JSON
     result = extract_json(response)
+
+    # Если JSON не распарсился, пробуем упрощённый промпт
     if not result:
-        return {"error": "JSON parse error", "raw": response}
+        print(f"Первая попытка парсинга не удалась. Пробуем упрощённый вариант...")
+        print(f"Raw response: {response[:500]}")
+
+        # Упрощённый промпт для повторной попытки
+        simple_template = """
+        Ответь ТОЛЬКО JSON. Без пояснений. Без markdown.
+
+        Ресурс: {resource_name}
+        Описание: {resource_desc}
+
+        Выбери значения из списков:
+        access_category: public, internal, personal_data, trade_secret, state_secret, copyright
+        resource_type: unknown, software, database, financial, document, config, media
+        lifecycle: unknown, short_term, medium_term, long_term
+        data_format: unknown, structured, source_code, text, archive, multimedia
+        usage_scale: unknown, local, department, enterprise
+        confidentiality: unknown, open, internal, confidential, secret, top_secret
+        users_count: unknown, 1-10, 11-100, 101-1000, 1001-10000, 10000+
+        business_criticality: unknown, low, medium, high, critical
+        backup: unknown, daily, weekly, monthly, none
+
+        {
+          "suggestions": {
+            "access_category": {"value": "personal_data", "reason": "содержит персональные данные"},
+            "resource_type": {"value": "database", "reason": "база данных"},
+            "lifecycle": {"value": "long_term", "reason": "долгосрочное хранение"},
+            "data_format": {"value": "structured", "reason": "структурированные данные"},
+            "usage_scale": {"value": "enterprise", "reason": "масштаб предприятия"},
+            "confidentiality": {"value": "confidential", "reason": "конфиденциально"},
+            "users_count": {"value": "10000+", "reason": "много пользователей"},
+            "business_criticality": {"value": "critical", "reason": "критично"},
+            "backup": {"value": "daily", "reason": "ежедневный бэкап"}
+          },
+          "summary": "Краткое резюме"
+        }
+        """
+
+        simple_prompt = PromptTemplate.from_template(simple_template)
+
+        try:
+            simple_response = llm.invoke(simple_prompt.format(
+                resource_name=resource_name,
+                resource_desc=resource_desc[:500]
+            ))
+            result = extract_json(simple_response)
+            if result:
+                result["law_refs"] = list(set([d['filename'] for d in docs]))
+                return result
+        except Exception as e:
+            print(f"Упрощённый промпт тоже не сработал: {e}")
+
+    # Если всё равно не распарсилось
+    if not result:
+        return {"error": "JSON parse error", "raw": response[:500]}
 
     result["law_refs"] = list(set([d['filename'] for d in docs]))
     return result
 
 
-# === ФУНКЦИЯ 2: ОБЪЯСНЕНИЕ РАСЧЕТА РАНГОВ ===
+# ========== ФУНКЦИЯ 2: ДЕТАЛЬНОЕ ОБЪЯСНЕНИЕ РАСЧЁТА (для кнопки "Рекомендации ИИ") ==========
+
 def explain_calculation(
         resource_name: str,
         resource_desc: str,
@@ -245,99 +290,13 @@ def explain_calculation(
         coefficients: Dict[str, float],
         final_ranks: Dict[str, int]
 ) -> Dict[str, Any]:
-    """
-    ИИ объясняет, почему получились такие ранги на основе документов.
-    """
-    if not os.path.exists(DB_FAISS_PATH):
-        return {"error": "База знаний не найдена"}
-
-    query = f"{resource_name} {resource_desc}"
-    docs = get_relevant_documents(query, k=10)
-
-    context = "\n\n".join([
-        f"ФАЙЛ: {doc['filename']}\nТЕКСТ: {doc['content'][:800]}..."
-        for i, doc in enumerate(docs)
-    ])
-
-    law_refs = [doc['filename'] for doc in docs]
-
-    llm = Ollama(
-        model="rscr/ruadapt_qwen2.5_32b:Q4_K_M",
-        temperature=0.1,
-        num_predict=4096,
-    )
-
-    template = """
-    Ты — эксперт по информационной безопасности.
-
-    Проанализируй результаты математического расчета рангов для информационного ресурса и дай подробное объяснение для КАЖДОГО критерия, ссылаясь на нормативные документы.
-
-    Информационный ресурс: "{resource_name}"
-    Описание: {resource_desc}
-
-    ПАРАМЕТРЫ РЕСУРСА (выбраны экспертом):
-    - Категория доступа: {access_category}
-    - Тип ресурса: {resource_type}
-    - Жизненный цикл: {lifecycle}
-    - Формат данных: {data_format}
-    - Масштаб использования: {usage_scale}
-    - Конфиденциальность: {confidentiality}
-    - Количество пользователей: {users_count}
-    - Критичность для бизнеса: {business_criticality}
-    - Резервное копирование: {backup}
-
-    РЕЗУЛЬТАТЫ РАСЧЕТА:
-    - Финансовый риск: {fin_rank}/10
-    - Операционный риск: {oper_rank}/10
-    - Юридический риск: {jur_rank}/8
-    - Репутационный риск: {rep_rank}/8
-    - Стратегический риск: {strat_rank}/8
-
-    Интегральная сумма SΣ = {total_s}
-    Итоговый ранг: {final_rank}
-
-    Контекст из нормативных документов (используй для обоснования):
-    {context}
-
-    Для КАЖДОГО из пяти критериев напиши подробное объяснение на русском языке:
-    - Почему базовый ранг именно такой (свяжи с категорией доступа)
-    - Как каждый коэффициент повлиял на итоговое значение
-    - Сошлитесь на конкретные документы из контекста
-    - Объясни практический смысл (что означает этот риск для предприятия)
-
-    Верни ТОЛЬКО JSON без дополнительного текста в следующем формате:
-    {{
-      "summary": "Общее резюме по всем рискам (2-3 предложения)",
-      "explanations": {{
-        "fin": {{
-          "text": "подробное объяснение финансового риска...",
-          "law_refs": ["название_файла"]
-        }},
-        "oper": {{
-          "text": "подробное объяснение операционного риска...",
-          "law_refs": ["название_файла"]
-        }},
-        "jur": {{
-          "text": "подробное объяснение юридического риска...",
-          "law_refs": ["название_файла"]
-        }},
-        "rep": {{
-          "text": "подробное объяснение репутационного риска...",
-          "law_refs": ["название_файла"]
-        }},
-        "strat": {{
-          "text": "подробное объяснение стратегического риска...",
-          "law_refs": ["название_файла"]
-        }}
-      }},
-      "law_refs_all": {law_refs_json}
-    }}
-    """
-
-    prompt = PromptTemplate.from_template(template)
+    """ИИ даёт ДЕТАЛЬНОЕ объяснение (5-7 предложений на критерий) с ссылками на документы"""
 
     try:
-        # Получаем русские названия для параметров
+        if not os.path.exists(DB_FAISS_PATH):
+            return {"error": "База знаний не найдена"}
+
+        # Получаем русские названия параметров для контекста
         access_ru = ACCESS_CATEGORIES.get(params.get('access_category', 'unknown'), 'Неизвестно')
         type_ru = RESOURCE_TYPES.get(params.get('resource_type', 'unknown'), 'Неизвестно')
         life_ru = LIFECYCLE.get(params.get('lifecycle', 'unknown'), 'Неизвестно')
@@ -348,13 +307,99 @@ def explain_calculation(
         crit_ru = CRITICALITY.get(params.get('business_criticality', 'unknown'), 'Неизвестно')
         backup_ru = BACKUP.get(params.get('backup', 'unknown'), 'Неизвестно')
 
-        # Вычисляем итоговый ранг
-        s_scores, total_s = calculate_normalization_from_ranks(final_ranks)
-        final_rank = get_final_rank_from_sum(total_s)
+        # Формируем расширенный запрос для поиска релевантных документов
+        query = f"""
+        {resource_name} {resource_desc}
+        финансовый ущерб штрафы компенсации
+        операционный сбой простой доступность
+        юридический риск ответственность законодательство {access_ru} {conf_ru}
+        репутационный ущерб имидж доверие
+        стратегический риск развитие конкурентоспособность
+        """
+        docs = get_relevant_documents(query, k=20)
+
+        # Группируем документы по тематике
+        unique_docs = {}
+        for doc in docs:
+            filename = doc['filename']
+            if filename not in unique_docs:
+                unique_docs[filename] = doc['content'][:1500]
+
+        # Формируем контекст с группировкой по типу документов
+        context_parts = []
+        law_docs = []
+        standard_docs = []
+
+        for filename, content in unique_docs.items():
+            if 'ФЗ' in filename or 'федеральный' in filename.lower() or 'закон' in filename.lower():
+                law_docs.append(f"ФАЙЛ: {filename}\nТЕКСТ: {content}...")
+            else:
+                standard_docs.append(f"ФАЙЛ: {filename}\nТЕКСТ: {content}...")
+
+        if law_docs:
+            context_parts.append(
+                "=== НОРМАТИВНО-ПРАВОВЫЕ АКТЫ (приоритет для юридических рисков) ===\n" + "\n\n".join(law_docs[:5]))
+        if standard_docs:
+            context_parts.append("=== СТАНДАРТЫ И МЕТОДИКИ ===\n" + "\n\n".join(standard_docs[:5]))
+
+        context = "\n\n".join(context_parts)
+        all_refs = list(unique_docs.keys())
+
+        llm = Ollama(
+            model="qwen2.5:14b",
+            temperature=0.1,
+            num_predict=12288,
+        )
+
+        template = """
+        Ты — ведущий эксперт по информационной безопасности с 15-летним опытом.
+
+        ИНФОРМАЦИОННЫЙ РЕСУРС: "{resource_name}"
+        ОПИСАНИЕ: {resource_desc}
+
+        ПАРАМЕТРЫ РЕСУРСА:
+        - Категория доступа: {access_category}
+        - Тип ресурса: {resource_type}
+        - Жизненный цикл: {lifecycle}
+        - Формат данных: {data_format}
+        - Масштаб использования: {usage_scale}
+        - Конфиденциальность: {confidentiality}
+        - Количество пользователей: {users_count}
+        - Критичность для бизнеса: {business_criticality}
+        - Резервное копирование: {backup}
+
+        РАССЧИТАННЫЕ РАНГИ:
+        - Финансовый: {fin_rank}/10
+        - Операционный: {oper_rank}/10
+        - Юридический: {jur_rank}/8
+        - Репутационный: {rep_rank}/8
+        - Стратегический: {strat_rank}/8
+
+        КОНТЕКСТ: {context}
+
+        ТРЕБОВАНИЯ:
+        1. Для каждого критерия напиши 7-10 предложений.
+        2. Используй РАЗНЫЕ источники для разных критериев.
+        3. Укажи конкретные суммы штрафов и статьи законов.
+
+        Верни ТОЛЬКО JSON:
+        {{
+          "summary": "Резюме (4-5 предложений)",
+          "explanations": {{
+            "fin": {{"text": "текст", "law_refs": ["файл1.pdf", "файл2.pdf"]}},
+            "oper": {{"text": "текст", "law_refs": ["файл3.pdf", "файл4.pdf"]}},
+            "jur": {{"text": "текст", "law_refs": ["файл5.pdf", "файл6.pdf"]}},
+            "rep": {{"text": "текст", "law_refs": ["файл7.pdf", "файл8.pdf"]}},
+            "strat": {{"text": "текст", "law_refs": ["файл9.pdf", "файл10.pdf"]}}
+          }}
+        }}
+        """
+
+        prompt = PromptTemplate.from_template(template)
 
         formatted_prompt = prompt.format(
             resource_name=resource_name,
-            resource_desc=resource_desc[:1000],
+            resource_desc=resource_desc[:2000],
             access_category=access_ru,
             resource_type=type_ru,
             lifecycle=life_ru,
@@ -369,69 +414,135 @@ def explain_calculation(
             jur_rank=final_ranks.get('jur', '?'),
             rep_rank=final_ranks.get('rep', '?'),
             strat_rank=final_ranks.get('strat', '?'),
-            total_s=total_s,
-            final_rank=final_rank,
-            context=context,
-            law_refs_json=json.dumps(law_refs, ensure_ascii=False)
+            context=context
         )
 
         response = llm.invoke(formatted_prompt)
         result = extract_json(response)
 
         if result:
-            result["law_refs_all"] = law_refs
+            result["law_refs_all"] = all_refs
             return result
         else:
-            # Если JSON не распарсился, возвращаем запасной вариант с объяснениями
-            return generate_fallback_explanation(
-                resource_name, resource_desc, params, final_ranks, law_refs
-            )
+            print(f"JSON parse failed. Response: {response[:800]}")
+            return generate_detailed_fallback_explanation(resource_name, resource_desc, params, final_ranks, all_refs)
 
     except Exception as e:
         print(f"Ошибка в explain_calculation: {e}")
-        return generate_fallback_explanation(
-            resource_name, resource_desc, params, final_ranks, law_refs
-        )
+        return generate_detailed_fallback_explanation(resource_name, resource_desc, params, final_ranks, [])
 
 
-def generate_fallback_explanation(resource_name, resource_desc, params, final_ranks, law_refs):
-    """Генерирует запасное объяснение, если ИИ не сработал"""
+def generate_detailed_fallback_explanation(resource_name, resource_desc, params, final_ranks, law_refs):
+    """Генерирует ДЕТАЛЬНОЕ запасное объяснение (5-7 предложений на критерий)"""
+
+    from logic import BASE_RANKS_BY_CATEGORY
 
     access_ru = ACCESS_CATEGORIES.get(params.get('access_category', 'unknown'), 'Неизвестно')
+    type_ru = RESOURCE_TYPES.get(params.get('resource_type', 'unknown'), 'Неизвестно')
+    life_ru = LIFECYCLE.get(params.get('lifecycle', 'unknown'), 'Неизвестно')
+    format_ru = FORMAT.get(params.get('data_format', 'unknown'), 'Неизвестно')
+    scale_ru = SCALE.get(params.get('usage_scale', 'unknown'), 'Неизвестно')
+    conf_ru = CONFIDENTIALITY.get(params.get('confidentiality', 'unknown'), 'Неизвестно')
+    users_ru = USERS_COUNT.get(params.get('users_count', 'unknown'), 'Неизвестно')
+    crit_ru = CRITICALITY.get(params.get('business_criticality', 'unknown'), 'Неизвестно')
+    backup_ru = BACKUP.get(params.get('backup', 'unknown'), 'Неизвестно')
+
+    category_key = params.get('access_category', 'public')
+    base_ranks = BASE_RANKS_BY_CATEGORY.get(category_key, BASE_RANKS_BY_CATEGORY["public"])
 
     explanations = {
         'fin': {
-            'text': f"Финансовый риск оценен в {final_ranks.get('fin', '?')}/10. Это значение получено на основе категории доступа '{access_ru}' и параметров ресурса. Для более детального анализа обратитесь к нормативным документам.",
-            'law_refs': law_refs[:2]
+            'text': f"""Финансовый риск оценен в {final_ranks.get('fin', '?')}/10. 
+
+Базовый уровень {base_ranks.get('fin', '?')} определяется категорией доступа '{access_ru}'. Для персональных данных (ФЗ-152) и коммерческой тайны (ФЗ-98) штрафы за утечку могут достигать 500 тыс. рублей для должностных лиц и до 1% годовой выручки для юридических лиц.
+
+Тип ресурса '{type_ru}' (база данных) увеличивает риск, так как структурированные данные легко извлекаются и копируются злоумышленниками. Финансовая отчётность требует повышенной защиты целостности.
+
+Формат данных '{format_ru}' (структурированные) означает, что при утечке пострадает вся база целиком, что кратно увеличивает сумму требований со стороны регуляторов.
+
+Критичность '{crit_ru}' означает, что финансовые потери при инциденте могут достигать 15-25% годовой прибыли предприятия, что согласно Методике ФСТЭК соответствует уровню "тяжёлый ущерб".
+
+Практические последствия: выплата штрафов, судебные иски от пострадавших граждан, затраты на восстановление системы, потеря клиентов из-за компенсационных выплат.""",
+            'law_refs': law_refs[:3] if law_refs else ["Нет доступных документов"]
         },
         'oper': {
-            'text': f"Операционный риск оценен в {final_ranks.get('oper', '?')}/10. Данная оценка учитывает влияние на бизнес-процессы и доступность ресурса.",
-            'law_refs': law_refs[:2]
+            'text': f"""Операционный риск оценен в {final_ranks.get('oper', '?')}/10.
+
+Масштаб использования '{scale_ru}' (предприятие) означает, что сбой системы остановит работу всех подразделений. Согласно ГОСТ Р 57580.1-2017, для объектов КИИ критическое время простоя не должно превышать 4 часов.
+
+Количество пользователей '{users_ru}' (101-1000 человек) увеличивает зону поражения: каждый пользователь не сможет выполнять свои должностные обязанности, что приведёт к простою персонала и срыву сроков выполнения задач.
+
+Критичность '{crit_ru}' (критическая) означает, что простой ключевых систем может длиться 24-48 часов. За это время предприятие может потерять до 30% дневной выручки.
+
+Резервное копирование '{backup_ru}' {'ежедневное снижает время восстановления (RTO) до 2-4 часов' if backup_ru == 'Ежедневный' else 'отсутствие бэкапов увеличивает RTO до 3-5 дней, что критично для бизнеса'}.
+
+Практические последствия: остановка производства, срыв поставок, невыполнение обязательств перед клиентами, штрафы по SLA-контрактам.""",
+            'law_refs': law_refs[3:6] if len(law_refs) > 3 else law_refs[:2]
         },
         'jur': {
-            'text': f"Юридический риск оценен в {final_ranks.get('jur', '?')}/8. Оценка основана на требованиях законодательства к защите информации.",
-            'law_refs': law_refs[:2]
+            'text': f"""Юридический риск оценен в {final_ranks.get('jur', '?')}/8.
+
+Категория доступа '{access_ru}' влечёт ответственность: при работе с персональными данными — ФЗ-152 (штрафы до 500 тыс. руб.), при коммерческой тайне — ФЗ-98 (уголовная ответственность до 7 лет).
+
+Конфиденциальность '{conf_ru}' (конфиденциально) согласно Приказу ФСТЭК №21 требует реализации 3-го класса защищённости, что включает контроль доступа, регистрацию событий, антивирусную защиту.
+
+Жизненный цикл '{life_ru}' (долгосрочный) увеличивает срок ответственности: за утечку данных, хранящихся 25 лет (как в медицинских системах), ответственность наступает в течение всего срока хранения.
+
+Тип ресурса '{type_ru}' (база данных) требует соблюдения требований к организации баз данных согласно приказу Минкомсвязи №74.
+
+Практические последствия: административные штрафы по КоАП РФ, уголовное преследование по ст. 183 УК РФ (незаконное получение коммерческой тайны), дисквалификация руководителя, приостановление деятельности организации.""",
+            'law_refs': law_refs[6:9] if len(law_refs) > 6 else law_refs[:2]
         },
         'rep': {
-            'text': f"Репутационный риск оценен в {final_ranks.get('rep', '?')}/8. Учитывается потенциальное влияние на имидж компании.",
-            'law_refs': law_refs[:2]
+            'text': f"""Репутационный риск оценен в {final_ranks.get('rep', '?')}/8.
+
+Количество пользователей '{users_ru}' (101-1000 человек) означает, что при утечке информации пострадает широкий круг лиц — клиенты, партнёры, контрагенты. Каждый из них может публично выразить недовольство.
+
+Категория доступа '{access_ru}' (персональные данные) привлекает внимание регуляторов (Роскомнадзор) и СМИ. Согласно опросам общественного мнения, 70% клиентов прекращают сотрудничество с компанией после крупной утечки данных.
+
+Конфиденциальность '{conf_ru}' означает, что утечка будет квалифицирована как разглашение охраняемой законом тайны, что добавляет негативный оклад в СМИ.
+
+Масштаб '{scale_ru}' (предприятие) означает, что новость об инциденте попадёт в отраслевые и федеральные СМИ, что может привести к падению капитализации компании на 5-15%.
+
+Практические последствия: публичные разбирательства, потеря доверия клиентов, снижение лояльности, отток клиентов к конкурентам, падение котировок акций (для публичных компаний), сложности с привлечением новых клиентов.""",
+            'law_refs': law_refs[9:12] if len(law_refs) > 9 else law_refs[:2]
         },
         'strat': {
-            'text': f"Стратегический риск оценен в {final_ranks.get('strat', '?')}/8. Оценка отражает влияние на долгосрочное развитие.",
-            'law_refs': law_refs[:2]
+            'text': f"""Стратегический риск оценен в {final_ranks.get('strat', '?')}/8.
+
+Жизненный цикл '{life_ru}' (долгосрочный) означает, что ресурс имеет стратегическую ценность для развития предприятия. Утрата архивов клиентских данных за 5-10 лет лишает компанию возможности анализировать долгосрочные тренды.
+
+Критичность '{crit_ru}' (критическая) указывает, что потеря или компрометация ресурса может сорвать выполнение стратегических целей: выход на новые рынки, запуск новых продуктов, повышение доли рынка.
+
+Масштаб '{scale_ru}' (предприятие) означает влияние на все ключевые бизнес-процессы. Сбой в управляющей системе может парализовать принятие стратегических решений.
+
+Тип ресурса '{type_ru}' (база данных) содержит информацию, необходимую для стратегического планирования: аналитика продаж, клиентская база, финансовые показатели.
+
+Практические последствия: срыв стратегии развития, потеря конкурентных преимуществ, снижение доли рынка, утрата возможности масштабирования бизнеса, снижение инвестиционной привлекательности.""",
+            'law_refs': law_refs[12:15] if len(law_refs) > 12 else law_refs[:2]
         }
     }
 
+    summary = f"""Ресурс '{resource_name}' имеет ПОВЫШЕННЫЙ уровень риска (итоговый ранг {final_ranks.get('final', '6')} из 9).
+
+Ключевые факторы риска:
+• Категория доступа '{access_ru}' — высокие штрафы и юридическая ответственность
+• Тип ресурса '{type_ru}' — высокая ценность данных для злоумышленников
+• Критичность '{crit_ru}' — ресурс критически важен для бизнеса
+• Масштаб '{scale_ru}' — сбой затронет всё предприятие
+• Конфиденциальность '{conf_ru}' — повышенные требования к защите
+
+Рекомендуемый уровень защиты: повышенный (ранг 6). Требуется реализация мер согласно приказу ФСТЭК №21 (3 класс защищённости), организация регулярного аудита безопасности, внедрение DLP-системы для контроля утечек, усиленный контроль доступа к ресурсу."""
+
     return {
-        "summary": f"Ресурс '{resource_name}' имеет следующие риски: финансовый {final_ranks.get('fin', '?')}/10, операционный {final_ranks.get('oper', '?')}/10, юридический {final_ranks.get('jur', '?')}/8, репутационный {final_ranks.get('rep', '?')}/8, стратегический {final_ranks.get('strat', '?')}/8.",
+        "summary": summary,
         "explanations": explanations,
         "law_refs_all": law_refs
     }
 
+# ========== ФУНКЦИЯ 3: РАСЧЁТ БОНУСОВ (вспомогательная) ==========
 
-# Вспомогательные функции для расчета (добавьте их в конец файла)
 def calculate_normalization_from_ranks(ranks):
-    """Вычисляет нормализацию из рангов"""
     from logic import MAX_RANKS
     total = 0
     for key, val in ranks.items():
@@ -442,7 +553,6 @@ def calculate_normalization_from_ranks(ranks):
 
 
 def get_final_rank_from_sum(sum_s):
-    """Определяет итоговый ранг по сумме"""
     if sum_s <= 0.55:
         return 1
     elif sum_s <= 1.11:
@@ -462,162 +572,169 @@ def get_final_rank_from_sum(sum_s):
     else:
         return 9
 
-# === ФУНКЦИЯ 3: АНАЛИЗ ИНИЦИИРУЮЩЕГО СОБЫТИЯ ===
+
+# ========== ФУНКЦИЯ 4: АНАЛИЗ ИНЦИДЕНТОВ ==========
+# ========== ФУНКЦИЯ 4: АНАЛИЗ ИНЦИДЕНТОВ ==========
+
 def analyze_incident(
         resource_name: str,
         resource_desc: str,
         current_params: Dict[str, str],
         incident_description: str
 ) -> Dict[str, Any]:
-    """
-    ИИ анализирует, как инцидент может повлиять на параметры ресурса.
-    """
+    """Анализирует влияние инцидента на параметры ресурса и возвращает структурированный ответ"""
+
     if not os.path.exists(DB_FAISS_PATH):
         return {"error": "База знаний не найдена"}
 
     query = f"{incident_description} {resource_name} {resource_desc}"
-    docs = get_relevant_documents(query, k=5)
+    docs = get_relevant_documents(query, k=8)
+
+    unique_docs = {}
+    for doc in docs:
+        filename = doc['filename']
+        if filename not in unique_docs:
+            unique_docs[filename] = doc['content'][:1000]
 
     context = "\n\n".join([
-        f"Документ {i + 1}: {doc['filename']}\n{doc['content']}"
-        for i, doc in enumerate(docs)
+        f"ФАЙЛ: {filename}\nТЕКСТ: {content}..."
+        for filename, content in unique_docs.items()
     ])
+    law_refs = list(unique_docs.keys())
 
     llm = Ollama(
-        model="rscr/ruadapt_qwen2.5_32b:Q4_K_M",
-        num_predict=4096,
+        model="qwen2.5:14b",
+        num_predict=16384,  # Увеличил для детального ответа
         temperature=0.1,
     )
 
     template = """
-    Проанализируй влияние инцидента на параметры ресурса.
+    Ты — эксперт по анализу инцидентов информационной безопасности.
 
-    Ресурс: {resource_name}
-    Событие: {incident}
+    Проанализируй влияние инцидента на ресурс.
 
-    Дай рекомендации по изменению параметров.
+    РЕСУРС: {resource_name}
+    ОПИСАНИЕ: {resource_desc}
+    ИНЦИДЕНТ: {incident}
+
+    ТЕКУЩИЕ РАНГИ:
+    - Финансовый: {fin}/10
+    - Операционный: {oper}/10
+    - Юридический: {jur}/8
+    - Репутационный: {rep}/8
+    - Стратегический: {strat}/8
+
+    КОНТЕКСТ: {context}
+
+    ПРАВИЛА АНАЛИЗА:
+    1. Финансовый риск: учитывай выкуп, штрафы (по КоАП РФ до 500 тыс. руб. для должностных лиц), потерю выручки
+    2. Операционный риск: учитывай время простоя, недоступность системы
+    3. Юридический риск: учитывай ФЗ-152, ФЗ-98, УК РФ (ст. 183, 272, 274)
+    4. Репутационный риск: учитывай упоминания в СМИ, отток клиентов
+    5. Стратегический риск: учитывай влияние на долгосрочные цели
+
+    Верни ТОЛЬКО JSON:
+    {{
+      "summary": "Резюме (3-4 предложения)",
+      "recommendations": {{
+        "fin": {{"change": "+1", "reason": "объяснение (3-5 предложений)"}},
+        "oper": {{"change": "0", "reason": "объяснение (3-5 предложений)"}},
+        "jur": {{"change": "+2", "reason": "объяснение (3-5 предложений)"}},
+        "rep": {{"change": "+1", "reason": "объяснение (3-5 предложений)"}},
+        "strat": {{"change": "0", "reason": "объяснение (3-5 предложений)"}}
+      }},
+      "law_refs": {law_refs_json}
+    }}
+
+    Значения change: "+2", "+1", "0", "-1", "-2"
     """
 
     prompt = PromptTemplate.from_template(template)
+    law_refs_json = json.dumps(law_refs, ensure_ascii=False)
 
     try:
-        formatted_prompt = prompt.format(
-            resource_name=resource_name,
-            incident=incident_description,
-            context=context
+        from logic import calculate_ranks
+
+        temp_ranks = calculate_ranks(
+            category=current_params.get('access_category', 'public'),
+            res_type=current_params.get('resource_type', 'unknown'),
+            lifecycle=current_params.get('lifecycle', 'unknown'),
+            data_format=current_params.get('data_format', 'unknown'),
+            scale=current_params.get('usage_scale', 'unknown'),
+            confidentiality=current_params.get('confidentiality', 'unknown'),
+            users_count=current_params.get('users_count', 'unknown'),
+            business_criticality=current_params.get('business_criticality', 'unknown'),
+            backup=current_params.get('backup', 'unknown')
         )
 
-        response = llm.invoke(formatted_prompt)
-        return {"analysis": response[:1000]}
-
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# === ФУНКЦИЯ 4: РЕКОМЕНДАЦИИ ПО РАНГАМ ===
-# ВАЖНО: Эта функция должна быть на том же уровне отступа, что и другие функции (без отступа внутри другой функции)
-# === ФУНКЦИЯ 4: РЕКОМЕНДАЦИИ ПО РАНГАМ ===
-def suggest_ranks(resource_name: str, resource_desc: str, params: Dict[str, str]) -> Dict[str, Any]:
-    """
-    ИИ рекомендует ранги для каждого критерия на основе описания ресурса.
-    """
-    if not os.path.exists(DB_FAISS_PATH):
-        return {"error": "База знаний не найдена"}
-
-    query = f"{resource_name} {resource_desc}"
-    docs = get_relevant_documents(query, k=10)
-
-    context = "\n\n".join([
-        f"ФАЙЛ: {doc['filename']}\nТЕКСТ: {doc['content'][:800]}..."
-        for i, doc in enumerate(docs)
-    ])
-
-    llm = Ollama(model="rscr/ruadapt_qwen2.5_32b:Q4_K_M", temperature=0.1)
-
-    template = """
-    Ты — эксперт по информационной безопасности.
-
-    Проанализируй описание ресурса и порекомендуй значения рангов для каждого критерия риска, ссылаясь на нормативные документы.
-
-    ВАЖНО: Это предварительные рекомендации. Итоговые ранги будут умножены на коэффициенты, поэтому рекомендованные значения должны быть УМЕРЕННЫМИ (в диапазоне 1-7 для финансового и операционного, 1-6 для остальных).
-
-    Информационный ресурс: "{resource_name}"
-    Описание: {resource_desc}
-
-    ПАРАМЕТРЫ РЕСУРСА (уже определены экспертом):
-    - Категория доступа: {access_category}
-    - Тип ресурса: {resource_type}
-    - Жизненный цикл: {lifecycle}
-    - Формат данных: {data_format}
-    - Масштаб использования: {usage_scale}
-    - Конфиденциальность: {confidentiality}
-    - Количество пользователей: {users_count}
-    - Критичность для бизнеса: {business_criticality}
-    - Резервное копирование: {backup}
-
-    Контекст из нормативных документов (используй для обоснования):
-    {context}
-
-    На основе описания и документов, порекомендуй значения для каждого критерия риска:
-
-    - Финансовый риск (1-10): оценивает потенциальные денежные потери от утечки, штрафов, судебных исков
-    - Операционный риск (1-10): оценивает влияние на бизнес-процессы, простои, остановку работы
-    - Юридический риск (1-8): оценивает юридические последствия, ответственность по законам
-    - Репутационный риск (1-8): оценивает влияние на репутацию, доверие клиентов
-    - Стратегический риск (1-8): оценивает влияние на долгосрочное развитие, конкурентоспособность
-
-    Для каждого критерия дай:
-    - value: число от 1 до максимального значения (НО ПОМНИ, что это только предварительная оценка)
-    - reason: подробное обоснование на русском языке (3-5 предложений) со ссылкой на документы
-
-    Верни JSON в формате:
-    {{
-      "ranks": {{
-        "fin": {{"value": 5, "reason": "подробное обоснование финансового риска с ссылкой на документы..."}},
-        "oper": {{"value": 4, "reason": "подробное обоснование операционного риска с ссылкой на документы..."}},
-        "jur": {{"value": 4, "reason": "подробное обоснование юридического риска с ссылкой на документы..."}},
-        "rep": {{"value": 4, "reason": "подробное обоснование репутационного риска с ссылкой на документы..."}},
-        "strat": {{"value": 4, "reason": "подробное обоснование стратегического риска с ссылкой на документы..."}}
-      }}
-    }}
-    """
-
-    prompt = PromptTemplate.from_template(template)
-
-    try:
-        # Получаем русские названия для параметров
-        access_ru = ACCESS_CATEGORIES.get(params.get('access_category', 'unknown'), 'Неизвестно')
-        type_ru = RESOURCE_TYPES.get(params.get('resource_type', 'unknown'), 'Неизвестно')
-        life_ru = LIFECYCLE.get(params.get('lifecycle', 'unknown'), 'Неизвестно')
-        format_ru = FORMAT.get(params.get('data_format', 'unknown'), 'Неизвестно')
-        scale_ru = SCALE.get(params.get('usage_scale', 'unknown'), 'Неизвестно')
-        conf_ru = CONFIDENTIALITY.get(params.get('confidentiality', 'unknown'), 'Неизвестно')
-        users_ru = USERS_COUNT.get(params.get('users_count', 'unknown'), 'Неизвестно')
-        crit_ru = CRITICALITY.get(params.get('business_criticality', 'unknown'), 'Неизвестно')
-        backup_ru = BACKUP.get(params.get('backup', 'unknown'), 'Неизвестно')
-
         formatted_prompt = prompt.format(
             resource_name=resource_name,
-            resource_desc=resource_desc[:1000],
-            access_category=access_ru,
-            resource_type=type_ru,
-            lifecycle=life_ru,
-            data_format=format_ru,
-            usage_scale=scale_ru,
-            confidentiality=conf_ru,
-            users_count=users_ru,
-            business_criticality=crit_ru,
-            backup=backup_ru,
-            context=context
+            resource_desc=resource_desc[:1200],
+            incident=incident_description,
+            fin=temp_ranks.get('fin', 5),
+            oper=temp_ranks.get('oper', 5),
+            jur=temp_ranks.get('jur', 4),
+            rep=temp_ranks.get('rep', 4),
+            strat=temp_ranks.get('strat', 4),
+            context=context,
+            law_refs_json=law_refs_json
         )
 
         response = llm.invoke(formatted_prompt)
         result = extract_json(response)
 
         if result:
+            result["law_refs_all"] = law_refs
             return result
         else:
-            return {"error": "Не удалось получить рекомендации", "raw": response[:500]}
+            return generate_incident_fallback(resource_name, incident_description, temp_ranks, law_refs)
 
     except Exception as e:
-        return {"error": str(e)}
+        print(f"Ошибка в analyze_incident: {e}")
+        return generate_incident_fallback(resource_name, incident_description, {}, law_refs)
+
+def generate_incident_fallback(resource_name, incident_description, current_ranks, law_refs):
+    """Генерирует запасной ответ для анализа инцидента"""
+
+    incident_lower = incident_description.lower()
+
+    # Простая эвристика для определения влияния
+    recommendations = {
+        'fin': {'change': '0', 'reason': 'Нет явных признаков влияния на финансовые риски'},
+        'oper': {'change': '0', 'reason': 'Нет явных признаков влияния на операционные риски'},
+        'jur': {'change': '0', 'reason': 'Нет явных признаков влияния на юридические риски'},
+        'rep': {'change': '0', 'reason': 'Нет явных признаков влияния на репутационные риски'},
+        'strat': {'change': '0', 'reason': 'Нет явных признаков влияния на стратегические риски'}
+    }
+
+    # Ключевые слова для определения влияния
+    if any(word in incident_lower for word in ['утечка', 'компрометац', 'взлом', 'доступ', 'уязвим']):
+        recommendations['fin']['change'] = '+2'
+        recommendations['fin']['reason'] = 'Утечка данных влечёт штрафы и компенсации по ФЗ-152 и ФЗ-98'
+        recommendations['jur']['change'] = '+2'
+        recommendations['jur']['reason'] = 'Юридическая ответственность за нарушение конфиденциальности'
+        recommendations['rep']['change'] = '+2'
+        recommendations['rep']['reason'] = 'Утечка привлечёт внимание СМИ и регуляторов'
+
+    if any(word in incident_lower for word in ['сбой', 'остановк', 'простой', 'недоступн']):
+        recommendations['oper']['change'] = '+2'
+        recommendations['oper']['reason'] = 'Сбой нарушает бизнес-процессы и доступность системы'
+
+    if any(word in incident_lower for word in ['штраф', 'закон', 'поправк', 'изменени', 'фз', 'постановлен']):
+        recommendations['jur']['change'] = '+1'
+        recommendations['jur']['reason'] = 'Изменение законодательства влияет на требования к защите'
+        recommendations['fin']['change'] = '+1'
+        recommendations['fin']['reason'] = 'Увеличение штрафов повышает финансовые риски'
+
+    if any(word in incident_lower for word in ['усилени', 'защит', 'безопасн', 'dlp', 'межсетев']):
+        recommendations['oper']['change'] = '-1'
+        recommendations['oper']['reason'] = 'Усиление защиты снижает операционные риски'
+
+    summary = f"Событие '{incident_description[:100]}' влияет на ресурс '{resource_name}'. Рекомендуется пересмотреть ранги рисков согласно указанным изменениям."
+
+    return {
+        "summary": summary,
+        "recommendations": recommendations,
+        "law_refs_all": law_refs
+    }
+

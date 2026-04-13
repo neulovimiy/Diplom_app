@@ -1,7 +1,10 @@
-# logic.py (ОБНОВЛЕННАЯ ВЕРСИЯ с возвратом итоговых рангов)
-# Максимальные значения шкал:
-# Группа А (критические) - 10
-# Группа Б (качественные) - 8
+# logic.py
+# Система оценки ценности информационных ресурсов
+# Методика: сложение базовых рангов + бонусы от параметров (каждый бонус = +1)
+
+# ============================================================================
+# МАКСИМАЛЬНЫЕ ЗНАЧЕНИЯ ШКАЛ
+# ============================================================================
 MAX_RANKS = {
     'fin': 10,  # Финансовый ущерб
     'oper': 10,  # Операционный сбой
@@ -10,224 +13,290 @@ MAX_RANKS = {
     'strat': 8  # Стратегический ущерб
 }
 
-# 1. Базовые ранги от Категории Доступа
+MIN_RANKS = {
+    'fin': 1,
+    'oper': 1,
+    'jur': 1,
+    'rep': 1,
+    'strat': 1
+}
+
+# ============================================================================
+# 1. БАЗОВЫЕ РАНГИ (ЗАВИСЯТ ОТ КАТЕГОРИИ ДОСТУПА)
+# ============================================================================
 BASE_RANKS_BY_CATEGORY = {
-    "public": {'fin': 1, 'oper': 1, 'jur': 1, 'rep': 1, 'strat': 1},
-    "internal": {'fin': 2, 'oper': 2, 'jur': 2, 'rep': 2, 'strat': 2},
-    "personal_data": {'fin': 3, 'oper': 3, 'jur': 4, 'rep': 4, 'strat': 3},
-    "trade_secret": {'fin': 4, 'oper': 3, 'jur': 3, 'rep': 3, 'strat': 4},
-    "state_secret": {'fin': 5, 'oper': 4, 'jur': 6, 'rep': 5, 'strat': 5},
-    "copyright": {'fin': 4, 'oper': 3, 'jur': 3, 'rep': 3, 'strat': 5}
+    "public": {
+        'fin': 1, 'oper': 1, 'jur': 1, 'rep': 1, 'strat': 1
+    },
+    "internal": {
+        'fin': 2, 'oper': 2, 'jur': 2, 'rep': 2, 'strat': 2
+    },
+    "personal_data": {
+        'fin': 3, 'oper': 3, 'jur': 4, 'rep': 4, 'strat': 3
+    },
+    "trade_secret": {
+        'fin': 4, 'oper': 3, 'jur': 3, 'rep': 3, 'strat': 4
+    },
+    "state_secret": {
+        'fin': 5, 'oper': 4, 'jur': 6, 'rep': 5, 'strat': 5
+    },
+    "copyright": {
+        'fin': 4, 'oper': 3, 'jur': 3, 'rep': 3, 'strat': 5
+    }
 }
 
-# 2. Коэффициент Типа ресурса
-TYPE_COEFFS = {
-    "unknown": 1.0,  # Неизвестно (не влияет)
-    "software": 1.25,  # Программное обеспечение
-    "database": 1.20,  # База данных
-    "financial": 1.15,  # Финансовая отчетность
-    "document": 1.10,  # Текстовая документация
-    "config": 1.10,  # Конфигурационные файлы
-    "media": 1.05  # Мультимедиа
+# ============================================================================
+# 2. БОНУСЫ ОТ ТИПА РЕСУРСА
+# ============================================================================
+# Обоснование: каждый "особенный" тип ресурса добавляет +1 к соответствующим рискам
+TYPE_BONUS = {
+    "unknown": {},
+    "software": {
+        'fin': 1,  # ПО сложно восстанавливать, высокие затраты на разработку
+        'jur': 1  # Нарушение лицензий, авторских прав
+    },
+    "database": {
+        'fin': 1,  # Утечка БД = массовый ущерб
+        'jur': 1  # Персональные данные, ответственность по 152-ФЗ
+    },
+    "financial": {
+        'fin': 1  # Финансовая отчётность под особым контролем регуляторов
+    },
+    "document": {},
+    "config": {},
+    "media": {}
 }
 
-# 3. Коэффициент Жизненного цикла
-LIFECYCLE_COEFFS = {
-    "unknown": 1.0,  # Неизвестно
-    "long_term": 1.20,  # Долгосрочный (более 3 лет)
-    "medium_term": 1.10,  # Среднесрочный (1-3 года)
-    "short_term": 1.05  # Краткосрочный (менее 1 года)
+# ============================================================================
+# 3. БОНУСЫ ОТ ЖИЗНЕННОГО ЦИКЛА
+# ============================================================================
+# Обоснование: чем дольше хранится информация, тем выше стратегическая ценность
+LIFECYCLE_BONUS = {
+    "unknown": {},
+    "short_term": {},  # до 1 года
+    "medium_term": {
+        'strat': 1  # 1-3 года
+    },
+    "long_term": {
+        'strat': 1,  # более 3 лет
+        'jur': 1  # длительный срок ответственности
+    }
 }
 
-# 4. Коэффициент Формата данных
-FORMAT_COEFFS = {
-    "unknown": 1.0,  # Неизвестно
-    "structured": 1.20,  # Структурированные данные (БД/JSON)
-    "source_code": 1.25,  # Исходный код
-    "text": 1.10,  # Текстовые документы
-    "archive": 1.05,  # Архивы
-    "multimedia": 1.00  # Мультимедиа
+# ============================================================================
+# 4. БОНУСЫ ОТ ФОРМАТА ДАННЫХ
+# ============================================================================
+# Обоснование: разные форматы имеют разную ценность для злоумышленников
+FORMAT_BONUS = {
+    "unknown": {},
+    "structured": {
+        'fin': 1  # Структурированные данные легко извлекаются и анализируются
+    },
+    "source_code": {
+        'fin': 1,  # Исходный код = интеллектуальная собственность
+        'oper': 1  # Утечка кода может нарушить работу систем
+    },
+    "text": {},
+    "archive": {},
+    "multimedia": {}
 }
 
-# 5. Коэффициент Масштаба использования
-SCALE_COEFFS = {
-    "unknown": 1.0,  # Неизвестно
-    "enterprise": 1.20,  # Масштаб предприятия
-    "department": 1.10,  # Уровень отдела
-    "local": 1.05  # Локальный
+# ============================================================================
+# 5. БОНУСЫ ОТ МАСШТАБА ИСПОЛЬЗОВАНИЯ
+# ============================================================================
+# Обоснование: чем шире используется ресурс, тем больше последствия сбоя
+SCALE_BONUS = {
+    "unknown": {},
+    "local": {},
+    "department": {
+        'oper': 1  # Сбой в отделе влияет на работу подразделения
+    },
+    "enterprise": {
+        'oper': 1,  # Сбой на уровне предприятия = остановка бизнес-процессов
+        'strat': 1  # Влияет на стратегические показатели компании
+    }
 }
 
-# ===== НОВЫЕ ПАРАМЕТРЫ =====
-
-# 6. Коэффициент конфиденциальности (уровень секретности)
-CONFIDENTIALITY_COEFFS = {
-    "unknown": 1.0,  # Неизвестно
-    "open": 1.0,  # Открытая информация
-    "internal": 1.1,  # Для внутреннего пользования
-    "confidential": 1.2,  # Конфиденциально
-    "secret": 1.3,  # Секретно
-    "top_secret": 1.4  # Особой важности
+# ============================================================================
+# 6. БОНУСЫ ОТ УРОВНЯ КОНФИДЕНЦИАЛЬНОСТИ
+# ============================================================================
+# Обоснование: высокая степень секретности увеличивает юридические риски
+CONFIDENTIALITY_BONUS = {
+    "unknown": {},
+    "open": {},
+    "internal": {},
+    "confidential": {
+        'jur': 1  # Конфиденциальная информация защищена законом
+    },
+    "secret": {
+        'jur': 1,  # Секретные данные = повышенная ответственность
+        'rep': 1  # Утечка секретов наносит репутационный ущерб
+    },
+    "top_secret": {
+        'jur': 2,  # Гостайна = максимальная юридическая ответственность
+        'rep': 1  # Утечка гостайны = катастрофа для репутации
+    }
 }
 
-# 7. Коэффициент количества пользователей
-USERS_COUNT_COEFFS = {
-    "unknown": 1.0,  # Неизвестно
-    "1-10": 1.0,
-    "11-100": 1.05,
-    "101-1000": 1.1,
-    "1001-10000": 1.15,
-    "10000+": 1.2
+# ============================================================================
+# 7. БОНУСЫ ОТ КОЛИЧЕСТВА ПОЛЬЗОВАТЕЛЕЙ
+# ============================================================================
+# Обоснование: больше пользователей = шире охват при инциденте
+USERS_BONUS = {
+    "unknown": {},
+    "1-10": {},
+    "11-100": {},
+    "101-1000": {
+        'oper': 1  # Много пользователей = сложнее обеспечить доступность
+    },
+    "1001-10000": {
+        'oper': 1,
+        'rep': 1  # Массовые жалобы = репутационные потери
+    },
+    "10000+": {
+        'oper': 1,
+        'rep': 1  # Огромная аудитория = максимальный репутационный ущерб
+    }
 }
 
-# 8. Коэффициент критичности для бизнеса
-BUSINESS_CRITICALITY_COEFFS = {
-    "unknown": 1.0,  # Неизвестно
-    "low": 1.0,  # Некритично
-    "medium": 1.1,  # Средняя критичность
-    "high": 1.2,  # Высокая критичность
-    "critical": 1.3  # Критично для выживания бизнеса
+# ============================================================================
+# 8. БОНУСЫ ОТ КРИТИЧНОСТИ ДЛЯ БИЗНЕСА
+# ============================================================================
+# Обоснование: критичность прямо коррелирует с размером потенциального ущерба
+CRITICALITY_BONUS = {
+    "unknown": {},
+    "low": {},
+    "medium": {
+        'fin': 1  # Средняя критичность = ощутимые финансовые потери
+    },
+    "high": {
+        'fin': 1,
+        'oper': 1  # Высокая критичность = серьёзные операционные сбои
+    },
+    "critical": {
+        'fin': 1,
+        'oper': 1,
+        'strat': 1  # Критический ресурс = угроза стратегии развития
+    }
 }
 
-# 9. Коэффициент наличия резервного копирования
-BACKUP_COEFFS = {
-    "unknown": 1.0,  # Неизвестно
-    "daily": 0.9,  # Ежедневный бэкап (снижает риск)
-    "weekly": 0.95,  # Еженедельный
-    "monthly": 1.0,  # Ежемесячный
-    "none": 1.2  # Нет бэкапа (повышает риск)
+# ============================================================================
+# 9. БОНУСЫ/ШТРАФЫ ОТ РЕЗЕРВНОГО КОПИРОВАНИЯ
+# ============================================================================
+# Обоснование: наличие бэкапов снижает риски, отсутствие — повышает
+BACKUP_BONUS = {
+    "unknown": {},
+    "daily": {
+        'oper': -1  # Ежедневный бэкап СНИЖАЕТ операционный риск
+    },
+    "weekly": {},
+    "monthly": {},
+    "none": {
+        'oper': 1  # Отсутствие бэкапа ПОВЫШАЕТ риск при сбое
+    }
 }
 
 
-def calculate_base_ranks(
-        category,
-        res_type,
-        lifecycle,
-        data_format,
-        scale,
-        # Новые параметры со значением по умолчанию "unknown"
-        confidentiality="unknown",
-        users_count="unknown",
-        business_criticality="unknown",
-        backup="unknown"
-):
+# ============================================================================
+# ОСНОВНАЯ ФУНКЦИЯ РАСЧЁТА
+# ============================================================================
+def calculate_ranks(
+        category: str,
+        res_type: str,
+        lifecycle: str,
+        data_format: str,
+        scale: str,
+        confidentiality: str,
+        users_count: str,
+        business_criticality: str,
+        backup: str
+) -> dict:
     """
-    Расчет рангов по методике с учетом новых параметров
+    Расчёт рангов по методике "сложение бонусов"
 
-    Параметры:
-        category - категория доступа
-        res_type - тип ресурса
-        lifecycle - жизненный цикл
-        data_format - формат данных
-        scale - масштаб использования
-        confidentiality - уровень конфиденциальности (НОВЫЙ)
-        users_count - количество пользователей (НОВЫЙ)
-        business_criticality - критичность для бизнеса (НОВЫЙ)
-        backup - наличие резервного копирования (НОВЫЙ)
+    Аргументы:
+        category - категория доступа (public, internal, personal_data, trade_secret, state_secret, copyright)
+        res_type - тип ресурса (unknown, software, database, financial, document, config, media)
+        lifecycle - жизненный цикл (unknown, short_term, medium_term, long_term)
+        data_format - формат данных (unknown, structured, source_code, text, archive, multimedia)
+        scale - масштаб использования (unknown, local, department, enterprise)
+        confidentiality - конфиденциальность (unknown, open, internal, confidential, secret, top_secret)
+        users_count - количество пользователей (unknown, 1-10, 11-100, 101-1000, 1001-10000, 10000+)
+        business_criticality - критичность (unknown, low, medium, high, critical)
+        backup - резервное копирование (unknown, daily, weekly, monthly, none)
 
     Возвращает:
-        calculated_ranks - словарь с полными результатами расчета
+        dict с ключами fin, oper, jur, rep, strat
     """
-    # Получаем базовые ранги по категории доступа
-    base = BASE_RANKS_BY_CATEGORY.get(category, BASE_RANKS_BY_CATEGORY["public"]).copy()
 
-    # Собираем все коэффициенты (с обработкой unknown)
-    k_t = TYPE_COEFFS.get(res_type, 1.0)
-    k_l = LIFECYCLE_COEFFS.get(lifecycle, 1.0)
-    k_f = FORMAT_COEFFS.get(data_format, 1.0)
-    k_s = SCALE_COEFFS.get(scale, 1.0)
+    # 1. Берём базовые ранги от категории доступа
+    ranks = BASE_RANKS_BY_CATEGORY.get(category, BASE_RANKS_BY_CATEGORY["public"]).copy()
 
-    # НОВЫЕ коэффициенты
-    k_conf = CONFIDENTIALITY_COEFFS.get(confidentiality, 1.0)
-    k_users = USERS_COUNT_COEFFS.get(users_count, 1.0)
-    k_business = BUSINESS_CRITICALITY_COEFFS.get(business_criticality, 1.0)
-    k_backup = BACKUP_COEFFS.get(backup, 1.0)
+    # 2. Собираем все бонусы в список
+    all_bonuses = [
+        TYPE_BONUS.get(res_type, {}),
+        LIFECYCLE_BONUS.get(lifecycle, {}),
+        FORMAT_BONUS.get(data_format, {}),
+        SCALE_BONUS.get(scale, {}),
+        CONFIDENTIALITY_BONUS.get(confidentiality, {}),
+        USERS_BONUS.get(users_count, {}),
+        CRITICALITY_BONUS.get(business_criticality, {}),
+        BACKUP_BONUS.get(backup, {})
+    ]
 
-    calculated_ranks = {}
+    # 3. Применяем бонусы (просто складываем)
+    for bonus in all_bonuses:
+        for criterion, delta in bonus.items():
+            ranks[criterion] = ranks.get(criterion, 0) + delta
 
-    # Для каждого критерия своя формула
-    for criterion, r_base in base.items():
+    # 4. Ограничиваем минимумами и максимумами
+    for criterion in ranks:
+        ranks[criterion] = max(MIN_RANKS[criterion], min(MAX_RANKS[criterion], ranks[criterion]))
 
-        # Базовое произведение коэффициентов для всех критериев
-        base_product = k_t * k_l
-
-        # Добавляем специфичные коэффициенты
-        if criterion == 'oper':
-            # Операционный: + масштаб, + пользователи, + критичность
-            val = r_base * base_product * k_s * k_users * k_business * k_backup
-            formula = f"{r_base} × {k_t} (тип) × {k_l} (цикл) × {k_s} (масштаб) × {k_users} (пользователи) × {k_business} (критичность) × {k_backup} (бэкап)"
-
-        elif criterion == 'fin':
-            # Финансовый: + формат, + конфиденциальность, + пользователи, + критичность, + бэкап
-            val = r_base * base_product * k_f * k_conf * k_users * k_business * k_backup
-            formula = f"{r_base} × {k_t} (тип) × {k_l} (цикл) × {k_f} (формат) × {k_conf} (конфид) × {k_users} (пользователи) × {k_business} (критичность) × {k_backup} (бэкап)"
-
-        elif criterion == 'jur':
-            # Юридический: + конфиденциальность, + пользователи
-            val = r_base * base_product * k_conf * k_users
-            formula = f"{r_base} × {k_t} (тип) × {k_l} (цикл) × {k_conf} (конфид) × {k_users} (пользователи)"
-
-        elif criterion == 'rep':
-            # Репутационный: + пользователи, + критичность
-            val = r_base * base_product * k_users * k_business
-            formula = f"{r_base} × {k_t} (тип) × {k_l} (цикл) × {k_users} (пользователи) × {k_business} (критичность)"
-
-        else:  # strat
-            # Стратегический: + критичность, + конфиденциальность
-            val = r_base * base_product * k_business * k_conf
-            formula = f"{r_base} × {k_t} (тип) × {k_l} (цикл) × {k_business} (критичность) × {k_conf} (конфид)"
-
-        # Сохраняем сырое значение
-        raw_val = val
-
-        # Округляем
-        val = int(round(val))
-
-        # Ограничиваем максимальными значениями
-        max_val = MAX_RANKS.get(criterion, 8)
-        val = max(1, min(val, max_val))
-
-        # Сохраняем результаты
-        calculated_ranks[criterion] = val
-        calculated_ranks[f'{criterion}_raw'] = round(raw_val, 2)
-        calculated_ranks[f'{criterion}_formula'] = formula
-
-    # Добавляем все коэффициенты в результат
-    calculated_ranks['coeff_type'] = k_t
-    calculated_ranks['coeff_life'] = k_l
-    calculated_ranks['coeff_format'] = k_f
-    calculated_ranks['coeff_scale'] = k_s
-    calculated_ranks['coeff_conf'] = k_conf
-    calculated_ranks['coeff_users'] = k_users
-    calculated_ranks['coeff_business'] = k_business
-    calculated_ranks['coeff_backup'] = k_backup
-
-    return calculated_ranks
+    return ranks
 
 
-def calculate_normalization(ranks):
-    """Нормализация значений к единому диапазону [0..1]"""
+def calculate_normalization(ranks: dict) -> tuple:
+    """
+    Нормализация значений к единому диапазону [0..1]
+
+    Аргументы:
+        ranks - словарь с рангами (fin, oper, jur, rep, strat)
+
+    Возвращает:
+        s_scores - словарь нормализованных значений
+        total_s - сумма нормализованных значений
+    """
     s_scores = {}
     total_s = 0.0
 
-    for key, val in ranks.items():
-        if key.endswith('_raw') or key.endswith('_formula') or key.startswith('coeff_'):
-            continue
+    # Нормализация для каждого критерия
+    # Формула: S = (R_факт - 1) / (R_max - 1)
 
-        max_r = MAX_RANKS.get(key, 8)
+    # Группа А (max = 10)
+    s_scores['fin'] = (ranks['fin'] - 1) / 9
+    s_scores['oper'] = (ranks['oper'] - 1) / 9
 
-        if max_r > 1:
-            s_val = (val - 1) / (max_r - 1)
-        else:
-            s_val = 0
+    # Группа Б (max = 8)
+    s_scores['jur'] = (ranks['jur'] - 1) / 7
+    s_scores['rep'] = (ranks['rep'] - 1) / 7
+    s_scores['strat'] = (ranks['strat'] - 1) / 7
 
-        s_scores[key] = round(s_val, 3)
-        total_s += s_val
+    total_s = sum(s_scores.values())
 
     return s_scores, round(total_s, 3)
 
 
-def get_final_rank(sum_s):
-    """Определение итогового ранга по интегральной сумме SΣ"""
+def get_final_rank(sum_s: float) -> int:
+    """
+    Определение итогового ранга по интегральной сумме SΣ
+
+    Аргументы:
+        sum_s - интегральная сумма нормализованных значений (0-5)
+
+    Возвращает:
+        итоговый ранг от 1 до 9
+    """
     if sum_s <= 0.55:
         return 1
     elif sum_s <= 1.11:
@@ -248,8 +317,16 @@ def get_final_rank(sum_s):
         return 9
 
 
-def get_protection_level(final_rank):
-    """Возвращает текстовое описание уровня защиты"""
+def get_protection_level(final_rank: int) -> str:
+    """
+    Возвращает текстовое описание уровня защиты
+
+    Аргументы:
+        final_rank - итоговый ранг (1-9)
+
+    Возвращает:
+        строковое описание уровня защиты
+    """
     levels = {
         1: "Базовый (открытая информация)",
         2: "Базовый",
@@ -262,3 +339,147 @@ def get_protection_level(final_rank):
         9: "Максимальный (особый режим)"
     }
     return levels.get(final_rank, "Не определен")
+
+
+def get_bonus_details(
+        category: str,
+        res_type: str,
+        lifecycle: str,
+        data_format: str,
+        scale: str,
+        confidentiality: str,
+        users_count: str,
+        business_criticality: str,
+        backup: str
+) -> dict:
+    """
+    Возвращает детальную информацию о том, какие бонусы были применены
+    (для отображения в интерфейсе)
+
+    Возвращает:
+        словарь с описанием каждого применённого бонуса
+    """
+    details = {
+        "base": BASE_RANKS_BY_CATEGORY.get(category, BASE_RANKS_BY_CATEGORY["public"]).copy(),
+        "bonuses": []
+    }
+
+    bonus_sources = [
+        ("Тип ресурса", TYPE_BONUS.get(res_type, {})),
+        ("Жизненный цикл", LIFECYCLE_BONUS.get(lifecycle, {})),
+        ("Формат данных", FORMAT_BONUS.get(data_format, {})),
+        ("Масштаб", SCALE_BONUS.get(scale, {})),
+        ("Конфиденциальность", CONFIDENTIALITY_BONUS.get(confidentiality, {})),
+        ("Количество пользователей", USERS_BONUS.get(users_count, {})),
+        ("Критичность для бизнеса", CRITICALITY_BONUS.get(business_criticality, {})),
+        ("Резервное копирование", BACKUP_BONUS.get(backup, {}))
+    ]
+
+    for source_name, bonus in bonus_sources:
+        if bonus:
+            details["bonuses"].append({
+                "source": source_name,
+                "bonus": bonus
+            })
+
+    return details
+
+
+# ============================================================================
+# ФУНКЦИЯ ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ (ЕСЛИ ГДЕ-ТО ВЫЗЫВАЕТСЯ calculate_base_ranks)
+# ============================================================================
+def calculate_base_ranks(
+        category: str,
+        res_type: str,
+        lifecycle: str,
+        data_format: str,
+        scale: str,
+        confidentiality: str = "unknown",
+        users_count: str = "unknown",
+        business_criticality: str = "unknown",
+        backup: str = "unknown"
+) -> dict:
+    """
+    Обёртка для обратной совместимости со старым кодом.
+    Вызывает calculate_ranks и возвращает результат в старом формате.
+    """
+    ranks = calculate_ranks(
+        category=category,
+        res_type=res_type,
+        lifecycle=lifecycle,
+        data_format=data_format,
+        scale=scale,
+        confidentiality=confidentiality,
+        users_count=users_count,
+        business_criticality=business_criticality,
+        backup=backup
+    )
+
+    # Добавляем коэффициенты (для совместимости, но они не используются)
+    result = ranks.copy()
+    result['coeff_type'] = 1.0
+    result['coeff_life'] = 1.0
+    result['coeff_format'] = 1.0
+    result['coeff_scale'] = 1.0
+    result['coeff_conf'] = 1.0
+    result['coeff_users'] = 1.0
+    result['coeff_business'] = 1.0
+    result['coeff_backup'] = 1.0
+
+    # Формулы для отображения
+    for crit in ['fin', 'oper', 'jur', 'rep', 'strat']:
+        result[f'{crit}_formula'] = f"Базовый {result[crit]}"
+
+    return result
+
+
+# ============================================================================
+# ТЕСТИРОВАНИЕ (при запуске файла напрямую)
+# ============================================================================
+if __name__ == "__main__":
+    print("=" * 60)
+    print("Тестирование logic.py")
+    print("=" * 60)
+
+    # Тестовый пример: Медицинская информационная система
+    print("\n1. Тест: Медицинская информационная система")
+    ranks = calculate_ranks(
+        category="personal_data",
+        res_type="database",
+        lifecycle="long_term",
+        data_format="structured",
+        scale="enterprise",
+        confidentiality="confidential",
+        users_count="1001-10000",
+        business_criticality="high",
+        backup="weekly"
+    )
+    print(
+        f"   Результат: fin={ranks['fin']}, oper={ranks['oper']}, jur={ranks['jur']}, rep={ranks['rep']}, strat={ranks['strat']}")
+
+    # Нормализация
+    s_scores, total_s = calculate_normalization(ranks)
+    print(f"   Нормализация: SΣ={total_s}")
+
+    # Итоговый ранг
+    final_rank = get_final_rank(total_s)
+    print(f"   Итоговый ранг: {final_rank} ({get_protection_level(final_rank)})")
+
+    # Детали бонусов
+    print("\n2. Детали применённых бонусов:")
+    details = get_bonus_details(
+        category="personal_data",
+        res_type="database",
+        lifecycle="long_term",
+        data_format="structured",
+        scale="enterprise",
+        confidentiality="confidential",
+        users_count="1001-10000",
+        business_criticality="high",
+        backup="weekly"
+    )
+    print(f"   Базовые ранги: {details['base']}")
+    for bonus in details['bonuses']:
+        print(f"   + {bonus['source']}: {bonus['bonus']}")
+
+    print("\n✅ Тестирование завершено")
