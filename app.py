@@ -6,7 +6,13 @@ from datetime import datetime
 import modules.ai_analyst as ai
 import database as db
 import logic
-
+import io
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.units import mm
+import tempfile
 # Настройка страницы (ТОЛЬКО ОДИН РАЗ!)
 st.set_page_config(
     page_title="СППР Оценка динамики ценности ИР",
@@ -17,338 +23,280 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    /* СВЕТЛЫЙ ФОН И ЧЁРНЫЙ ТЕКСТ */
-    .stApp {
-        background-color: #f5f5f5 !important;
-    }
+/* ========== РАСШИРЯЕМ КОНТЕЙНЕР ========== */
+.block-container {
+    max-width: 1400px !important;
+    padding: 2rem !important;
+}
 
-    .stApp, .stMarkdown, .stText, .stInfo, .stSuccess, .stWarning, .stError,
-    p, li, span, div, label, .stTextInput label, .stTextArea label {
-        color: #000000 !important;
-        font-size: 18px !important;
-    }
+/* ========== ОСНОВНОЙ ТЕКСТ - БОЛЬШИЕ БУКВЫ ========== */
+.stMarkdown, p, li, div, span {
+    font-size: 22px !important;
+    line-height: 1.5 !important;
+}
 
-    /* ЗАГОЛОВКИ */
-    h1, h2, h3, h4 {
-        color: #000000 !important;
-    }
-    h1 {
-        font-size: 2.5rem !important;
-        margin-top: 0 !important;
-        margin-bottom: 0.5rem !important;
-    }
-    h2 {
-        font-size: 1.8rem !important;
-        margin-top: 0 !important;
-        margin-bottom: 0.5rem !important;
-    }
+/* ========== ЛЕЙБЛЫ (НАДПИСИ НАД ПОЛЯМИ) ========== */
+label, .stTextInput label, .stTextArea label, .stSelectbox label {
+    font-size: 22px !important;
+    font-weight: 600 !important;
+    margin-bottom: 8px !important;
+}
 
-    /* ТАБЫ */
-    .stTabs [data-baseweb="tab"] {
-        font-size: 1rem !important;
-        font-weight: 600 !important;
-        color: #000000 !important;
-        background-color: #e0e0e0 !important;
-        border-radius: 8px 8px 0 0 !important;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 0.5rem !important;
-    }
+/* ========== SELECTBOX - УВЕЛИЧИВАЕМ ВЫСОТУ ========== */
+div[data-baseweb="select"] {
+    width: 100% !important;
+    min-width: 250px !important;
+}
 
-    /* КНОПКИ */
-    .stButton button {
-        font-size: 1rem !important;
-        font-weight: 600 !important;
-        padding: 0.5rem 1rem !important;
-        border-radius: 8px !important;
-        background-color: #4CAF50 !important;
-        color: white !important;
-        border: none !important;
-    }
-    .stButton button:hover {
-        background-color: #45a049 !important;
-    }
+/* Основное поле выбора - УВЕЛИЧЕННАЯ ВЫСОТА */
+div[data-baseweb="select"] > div {
+    background-color: #ffffff !important;
+    border: 2px solid #cccccc !important;
+    border-radius: 8px !important;
+    padding: 15px 12px !important;
+    min-height: 65px !important;
+    height: auto !important;
+}
 
-    /* МЕТРИКИ */
-    [data-testid="stMetricValue"] {
-        font-size: 2rem !important;
-        font-weight: 800 !important;
-        color: #000000 !important;
-    }
-    [data-testid="stMetricLabel"] {
-        font-size: 1rem !important;
-        color: #333333 !important;
-    }
-    [data-testid="stMetricDelta"] {
-        color: #333333 !important;
-    }
+/* Текст в поле выбора (что выбрано) */
+div[data-baseweb="select"] div[aria-selected="true"] {
+    font-size: 20px !important;
+    color: #000000 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    line-height: 1.4 !important;
+    min-height: 30px !important;
+    display: block !important;
+}
 
-    /* ПОЛЯ ВВОДА */
-    .stTextInput input, .stTextArea textarea, .stSelectbox select {
-        font-size: 1rem !important;
-        padding: 0.5rem !important;
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border: 1px solid #cccccc !important;
-        border-radius: 6px !important;
-    }
+/* Все спаны внутри select */
+div[data-baseweb="select"] span {
+    font-size: 20px !important;
+    color: #000000 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    line-height: 1.4 !important;
+}
 
-    /* ЛЕЙБЛЫ */
-    .stTextInput label, .stTextArea label, .stSelectbox label, .stSlider label {
-        font-size: 1rem !important;
-        font-weight: 600 !important;
-        color: #000000 !important;
-    }
+/* Выпадающий список */
+div[role="listbox"] {
+    background-color: #ffffff !important;
+    border: 1px solid #cccccc !important;
+    border-radius: 8px !important;
+    min-width: 350px !important;
+    max-width: 500px !important;
+    z-index: 9999 !important;
+}
 
-    /* СЛАЙДЕРЫ */
-    .stSlider {
-        padding: 0.5rem 0 !important;
-    }
+/* Элементы выпадающего списка */
+div[role="listbox"] div[role="option"] {
+    font-size: 18px !important;
+    padding: 12px 15px !important;
+    color: #000000 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    border-bottom: 1px solid #eeeeee !important;
+    min-height: 50px !important;
+}
 
-    /* ТАБЛИЦЫ */
-    .stTable td, .stTable th, .dataframe td, .dataframe th {
-        font-size: 14px !important;
-        padding: 8px 10px !important;
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border: 1px solid #dddddd !important;
-    }
+/* Убираем троеточие везде */
+.stSelectbox [class*="truncate"],
+.stSelectbox [class*="ellipsis"],
+.stSelectbox [class*="overflow"] {
+    text-overflow: clip !important;
+    white-space: normal !important;
+    overflow: visible !important;
+}
 
-    /* EXPANDER */
-    .streamlit-expanderHeader {
-        font-size: 1rem !important;
-        font-weight: 600 !important;
-        background-color: #e8e8e8 !important;
-        color: #000000 !important;
-        border-radius: 8px !important;
-    }
-    .streamlit-expanderContent {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border-radius: 8px !important;
-    }
+/* Исправляем контейнер выбранного значения */
+.stSelectbox .st-bb {
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow: visible !important;
+}
 
-    /* ИНФО БЛОКИ */
-    .stInfo {
-        background-color: #d9edf7 !important;
-        color: #000000 !important;
-        border-left: 4px solid #31708f !important;
-    }
-    .stSuccess {
-        background-color: #dff0d8 !important;
-        color: #000000 !important;
-        border-left: 4px solid #3c763d !important;
-    }
-    .stWarning {
-        background-color: #fcf8e3 !important;
-        color: #000000 !important;
-        border-left: 4px solid #8a6d3b !important;
-    }
-    .stError {
-        background-color: #f2dede !important;
-        color: #000000 !important;
-        border-left: 4px solid #a94442 !important;
-    }
+/* ========== ТАБЫ В 2 РЯДА ========== */
+.stTabs {
+    margin-top: 20px;
+}
 
-    /* КАРТОЧКИ РЕЗУЛЬТАТОВ */
-    .result-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 1rem;
-        text-align: center;
-    }
-    .result-card h4 {
-        font-size: 0.9rem !important;
-        color: white !important;
-    }
-    .result-card p {
-        font-size: 1.8rem !important;
-        font-weight: bold;
-        color: white !important;
-    }
+.stTabs [data-baseweb="tab-list"] {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+    background-color: transparent !important;
+    padding: 0 !important;
+    margin-bottom: 20px !important;
+}
 
-    /* КАРТОЧКИ РИСКОВ */
-    .risk-card {
-        background: #f0f2f6 !important;
-        padding: 0.8rem;
-        border-radius: 10px;
-        border-left: 4px solid;
-        color: #000000 !important;
-    }
-    .risk-card strong {
-        font-size: 0.9rem !important;
-        color: #000000 !important;
-    }
-    .risk-card span {
-        font-size: 1.5rem !important;
-        font-weight: bold;
-        color: #000000 !important;
-    }
+.stTabs [data-baseweb="tab"] {
+    font-size: 18px !important;
+    padding: 12px 16px !important;
+    background-color: #e0e0e0 !important;
+    border-radius: 10px !important;
+    text-align: center !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+}
 
-    /* ПОДВАЛ */
-    footer {
-        font-size: 0.8rem !important;
-        color: #666666 !important;
-    }
+.stTabs [aria-selected="true"] {
+    background-color: #1b5e20 !important;
+    color: white !important;
+}
 
-    /* БЛОКИ */
-    .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 0 !important;
-    }
+.stTabs [data-baseweb="tab"]:hover {
+    background-color: #c0c0c0 !important;
+}
 
-    /* ВСПЛЫВАЮЩИЕ УВЕДОМЛЕНИЯ */
-    .stToast {
-        background-color: #4CAF50 !important;
-        color: white !important;
-    }
-    .stSelectbox div[data-baseweb="select"] > div,
-    .stSelectbox ul,
-    .stSelectbox div[role="listbox"],
-    div[data-baseweb="select"] div {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-    }
-    
-    /* Выпадающий список */
-    .stSelectbox div[data-baseweb="select"] ul {
-        background-color: #ffffff !important;
-    }
-    
-    /* Элементы выпадающего списка */
-    .stSelectbox li {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-    }
-    
-    .stSelectbox li:hover {
-        background-color: #e0e0e0 !important;
-    }
-    
-    /* Текст в выбранном элементе */
-    .stSelectbox div[data-baseweb="select"] div {
-        color: #000000 !important;
-    }
-    
-    /* Радиокнопки и чекбоксы */
-    .stRadio div, .stCheckbox div {
-        background-color: transparent !important;
-    }
-    
-    /* Слайдеры */
-    .stSlider div {
-        background-color: transparent !important;
-    }
-    
-    /* Date input */
-    .stDateInput input {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-    }
-    
-    /* Number input */
-    .stNumberInput input {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-    }
-    
-    /* Tabs фон */
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: transparent !important;
-    }
-    
-    /* Выбранный таб */
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        background-color: #4CAF50 !important;
-        color: white !important;
-    }
-    
-    /* Невыбранный таб */
-    .stTabs [data-baseweb="tab"] {
-        background-color: #e0e0e0 !important;
-        color: #000000 !important;
-    }
-    
-    /* Selectbox стрелка */
-    .stSelectbox svg {
-        fill: #000000 !important;
-    }
-    
-    /* Инпуты */
-    .stTextInput input, .stTextArea textarea {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-    }
-    
-    /* Селектор ресурса (специально) */
-    div[data-testid="stSelectbox"] label {
-        color: #000000 !important;
-    }
-    
-    /* Контейнер выбора ресурса */
-    .stSelectbox [data-baseweb="select"] {
-        background-color: #ffffff !important;
-    }
-    /* Основной контейнер выпадающего списка */
-    div[data-baseweb="popover"] {
-        background-color: #ffffff !important;
-        border: 1px solid #cccccc !important;
-        border-radius: 8px !important;
-    }
-    
-    /* Список внутри выпадающего окна */
-    div[data-baseweb="popover"] ul {
-        background-color: #ffffff !important;
-        padding: 0 !important;
-        margin: 0 !important;
-    }
-    
-    /* Элементы списка */
-    div[data-baseweb="popover"] li {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        padding: 8px 12px !important;
-        cursor: pointer !important;
-    }
-    
-    /* Элементы списка при наведении */
-    div[data-baseweb="popover"] li:hover {
-        background-color: #e0e0e0 !important;
-    }
-    
-    /* Выбранный элемент в списке */
-    div[data-baseweb="popover"] li[aria-selected="true"] {
-        background-color: #4CAF50 !important;
-        color: white !important;
-    }
-    
-    /* Контейнер выбранного значения */
-    div[data-baseweb="select"] div[aria-selected="true"] {
-        background-color: #4CAF50 !important;
-        color: white !important;
-    }
-    
-    /* Затемнение фона (backdrop) */
-    div[data-radix-portal] {
-        background-color: rgba(0,0,0,0.1) !important;
-    }
-    
-    /* Все popup окна Streamlit */
-    .stPopover, .stTooltip, .stTooltipContent {
-        background-color: #ffffff !important;
-        border: 1px solid #cccccc !important;
-    }
-    
-    /* Date picker */
-    div[data-baseweb="calendar"] {
-        background-color: #ffffff !important;
-    }
-    div[data-baseweb="calendar"] div {
-        color: #000000 !important;
-    }
+/* ========== INPUT ПОЛЯ ========== */
+.stTextInput input, .stTextArea textarea {
+    font-size: 20px !important;
+    padding: 12px !important;
+    border-radius: 8px !important;
+    min-height: 55px !important;
+}
+::placeholder {
+    font-size: 18px !important;
+}
+
+/* ========== КНОПКИ ========== */
+.stButton button {
+    font-size: 20px !important;
+    padding: 12px 24px !important;
+    border-radius: 10px !important;
+    background-color: #4CAF50 !important;
+    color: white !important;
+    font-weight: 600 !important;
+}
+.stButton button:hover {
+    background-color: #45a049 !important;
+}
+
+/* ========== МЕТРИКИ ========== */
+[data-testid="stMetricValue"] {
+    font-size: 32px !important;
+    font-weight: 800 !important;
+}
+[data-testid="stMetricLabel"] {
+    font-size: 18px !important;
+}
+
+/* ========== ТАБЛИЦЫ ========== */
+.stTable td, .stTable th, .dataframe td, .dataframe th {
+    font-size: 16px !important;
+    padding: 10px !important;
+}
+
+/* ========== EXPANDER ========== */
+.streamlit-expanderHeader {
+    font-size: 20px !important;
+    font-weight: 600 !important;
+}
+
+/* ========== ИНФО БЛОКИ ========== */
+.stInfo, .stSuccess, .stWarning, .stError {
+    font-size: 18px !important;
+    padding: 12px !important;
+    border-radius: 10px !important;
+}
+
+/* ========== КАРТОЧКИ ========== */
+.result-card p {
+    font-size: 28px !important;
+}
+.risk-card span {
+    font-size: 24px !important;
+}
+.risk-card strong {
+    font-size: 16px !important;
+}
+
+/* ========== СЛАЙДЕРЫ ========== */
+.stSlider label {
+    font-size: 18px !important;
+}
+
+/* ========== КОЛОНКИ ========== */
+.row-widget.stColumns {
+    flex-wrap: wrap !important;
+}
+.stColumn {
+    min-width: 280px !important;
+    padding: 0 10px !important;
+}
+
+/* ========== ПОДВАЛ ========== */
+footer {
+    font-size: 14px !important;
+}
 </style>
 """, unsafe_allow_html=True)
+st.markdown("""
+<script>
+(function() {
+    function fixSelectBoxes() {
+        // Находим все выпадающие списки
+        const selects = document.querySelectorAll('[data-baseweb="select"]');
+        selects.forEach(select => {
+            // Увеличиваем высоту контейнера
+            const container = select.querySelector('div[aria-selected="true"]');
+            if (container) {
+                container.style.whiteSpace = 'normal';
+                container.style.wordBreak = 'break-word';
+                container.style.overflow = 'visible';
+                container.style.textOverflow = 'clip';
+                container.style.lineHeight = '1.4';
+                container.style.minHeight = '40px';
+                container.style.display = 'block';
+            }
 
+            // Исправляем родительский контейнер
+            const parentDiv = select.querySelector('div');
+            if (parentDiv) {
+                parentDiv.style.minHeight = '65px';
+                parentDiv.style.height = 'auto';
+            }
+        });
+
+        // Наблюдаем за изменениями
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.addedNodes.length) {
+                    const newSelects = document.querySelectorAll('[data-baseweb="select"]');
+                    newSelects.forEach(select => {
+                        const container = select.querySelector('div[aria-selected="true"]');
+                        if (container) {
+                            container.style.whiteSpace = 'normal';
+                            container.style.wordBreak = 'break-word';
+                            container.style.overflow = 'visible';
+                            container.style.minHeight = '40px';
+                        }
+                        const parentDiv = select.querySelector('div');
+                        if (parentDiv) {
+                            parentDiv.style.minHeight = '65px';
+                            parentDiv.style.height = 'auto';
+                        }
+                    });
+                }
+            });
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', fixSelectBoxes);
+    } else {
+        fixSelectBoxes();
+    }
+})();
+</script>
+""", unsafe_allow_html=True)
 # Функция для создания красивых карточек рисков
 def display_risk_card(title, value, max_val, color_class):
     st.markdown(f"""
@@ -1027,7 +975,17 @@ with tab1:
             suggested_backup = st.session_state.ai_suggestions.get("backup", {}).get("value")
 
         st.markdown("**Основные параметры:**")
-        col_a1, col_a2 = st.columns(2)
+        col_a1, col_a2 = st.columns([1, 1])
+
+        # Добавь после этого:
+        st.markdown("""
+        <style>
+        .stColumn {
+            min-width: 320px !important;
+            padding-right: 15px !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
         with col_a1:
             sel_access = st.selectbox(
@@ -1144,9 +1102,7 @@ with tab1:
 # ============================================================================
 with tab2:
     st.markdown("<h2 style='font-size: 2.2rem;'>📊 Анализ ранга сохраненного ресурса</h2>", unsafe_allow_html=True)
-    st.markdown("<h3 style='font-size: 1.8rem;'>📋 Параметры ресурса</h3>", unsafe_allow_html=True)
-    st.markdown("<h3 style='font-size: 1.8rem;'>⚙️ Экспертная оценка</h3>", unsafe_allow_html=True)
-    st.header("📊 Анализ ранга сохраненного ресурса")
+
 
     resources = db.get_all_resources_full()
 
@@ -1587,9 +1543,7 @@ with tab2:
 # ВКЛАДКА 3: ДИНАМИКА И ИНЦИДЕНТЫ
 # ============================================================================
 with tab3:
-    st.markdown("<h2 style='font-size: 2.2rem;'>⚡ Анализ динамики ценности при инцидентах</h2>", unsafe_allow_html=True)
-    st.markdown("<h3 style='font-size: 1.8rem;'>📈 Динамика изменения ценности</h3>", unsafe_allow_html=True)
-    st.header("⚡ Анализ динамики ценности при инцидентах")
+    st.markdown("<h2 style='font-size: 2.2rem; margin-bottom: 1rem;'>⚡ Анализ динамики ценности при инцидентах</h2>", unsafe_allow_html=True)
 
     resources = db.get_all_resources_full()
 
@@ -1609,7 +1563,7 @@ with tab3:
         if not history:
             st.warning("⚠️ Для этого ресурса еще нет оценок. Сначала проведите анализ на вкладке 2.")
         else:
-            st.subheader("📈 Динамика изменения ценности")
+            st.subheader("📈 Динамика изменения ценности ресурса")
 
             df_history = pd.DataFrame(
                 history,
@@ -1617,13 +1571,55 @@ with tab3:
             )
 
             if len(df_history) > 1:
-                chart_data = df_history[["Дата", "Ранг"]].copy()
-                chart_data["Дата"] = pd.to_datetime(chart_data["Дата"])
-                chart_data = chart_data.set_index("Дата")
-                st.line_chart(chart_data)
+                import plotly.express as px
+
+                # Создаём порядковый номер оценки (1, 2, 3...)
+                df_history_copy = df_history.copy()
+                df_history_copy["№ оценки"] = range(1, len(df_history_copy) + 1)
+
+                # Добавляем столбец с датой для отображения при наведении
+                df_history_copy["Дата и время"] = df_history_copy["Дата"]
+
+                fig = px.line(
+                    df_history_copy,
+                    x="№ оценки",
+                    y="Ранг",
+                    title="📈 Динамика изменения ценности ресурса",
+                    markers=True,
+                    text="Ранг",
+                    labels={"№ оценки": "Номер оценки (по порядку)", "Ранг": "Итоговый ранг (1-9)"}
+                )
+
+                # Добавляем подписи точек
+                fig.update_traces(textposition="top center", textfont_size=14)
+
+                # Настройка осей
+                fig.update_yaxes(range=[0.5, 9.5], dtick=1, title_font_size=16)
+                fig.update_xaxes(title_font_size=16, tickmode='linear', dtick=1)
+
+                # Настройка внешнего вида
+                fig.update_layout(
+                    font=dict(size=14),
+                    title_font=dict(size=20),
+                    hovermode='closest',
+                    showlegend=False
+                )
+
+                # Добавляем информацию о датах при наведении
+                fig.update_traces(
+                    hovertemplate='<b>№ оценки: %{x}</b><br>Ранг: %{y}<br>Дата: %{customdata}<extra></extra>',
+                    customdata=df_history_copy["Дата и время"]
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Дополнительная таблица с соответствием номеров и дат
+                with st.expander("📅 Соответствие номера оценки и даты"):
+                    date_mapping = df_history_copy[["№ оценки", "Дата", "Событие", "Ранг"]]
+                    st.dataframe(date_mapping, use_container_width=True)
+
             else:
                 st.info("ℹ️ Для построения графика нужно минимум 2 оценки")
-
             with st.expander("📋 История оценок", expanded=False):
                 display_df = df_history.drop(columns=["Детали"] if "Детали" in df_history.columns else [])
                 st.dataframe(display_df, use_container_width=True)
@@ -1732,7 +1728,7 @@ with tab3:
                     }
 
                     st.markdown("**Текущие ранги (можно скорректировать):**")
-                    st.markdown("**Текущие ранги (можно скорректировать):**")
+
                     col_r1, col_r2, col_r3, col_r4, col_r5 = st.columns(5)
                     with col_r1:
                         st.metric("💰 Финансовый", f"{current_ranks['fin']}/10")
@@ -1785,13 +1781,11 @@ with tab3:
                         else:
                             st.error("❌ Введите описание события")
 
-
 # ============================================================================
 # ВКЛАДКА 4: БАЗА РЕСУРСОВ И ОТЧЕТЫ
 # ============================================================================
 with tab4:
     st.markdown("<h2 style='font-size: 2.2rem;'>📚 База информационных ресурсов и отчеты</h2>", unsafe_allow_html=True)
-    st.header("📚 База информационных ресурсов и отчеты")
 
     resources = db.get_all_resources_full()
 
@@ -1851,14 +1845,185 @@ with tab4:
                 display_cols = ["Дата", "Событие", "Ранг", "Фин", "Опер", "Юр", "Реп", "Страт", "S∑"]
                 st.dataframe(df_detail[display_cols], use_container_width=True)
 
-                csv = df_detail[display_cols].to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    "📥 Скачать историю (CSV)",
-                    csv,
-                    f"resource_{res_for_detail}_history.csv",
-                    "text/csv",
-                    use_container_width=True
-                )
+                # ========== КНОПКИ ЭКСПОРТА ==========
+                col_export1, col_export2 = st.columns(2)
+
+                with col_export1:
+                    csv = df_detail[display_cols].to_csv(index=False).encode('utf-8-sig')
+                    st.download_button(
+                        "📥 Скачать историю (CSV)",
+                        csv,
+                        f"resource_{res_for_detail}_history.csv",
+                        "text/csv",
+                        use_container_width=True
+                    )
+
+                with col_export2:
+                    try:
+                        import io
+                        import matplotlib.pyplot as plt
+                        from matplotlib import rcParams
+                        from reportlab.lib.pagesizes import A4
+                        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+                        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                        from reportlab.lib.units import mm
+                        from reportlab.lib import colors
+                        from reportlab.pdfbase import pdfmetrics
+                        from reportlab.pdfbase.ttfonts import TTFont
+
+                        # Шрифт
+                        font_path = os.path.join(os.path.dirname(__file__), "DejaVuSans.ttf")
+                        if not os.path.exists(font_path):
+                            font_path = os.path.join(os.path.dirname(__file__), "DejaVuSansCondensed-Bold.ttf")
+
+                        if os.path.exists(font_path):
+                            pdfmetrics.registerFont(TTFont('DejaVu', font_path))
+                            font_name = 'DejaVu'
+                        else:
+                            font_name = 'Helvetica'
+
+                        # График
+                        rcParams['font.family'] = 'sans-serif'
+                        rcParams['font.sans-serif'] = ['DejaVu Sans']
+
+                        fig, ax = plt.subplots(figsize=(10, 5))
+                        x_vals = range(1, len(df_detail) + 1)
+                        y_vals = df_detail['Ранг'].values
+
+                        ax.plot(x_vals, y_vals, marker='o', linewidth=2, markersize=8, color='#1b5e20')
+                        ax.fill_between(x_vals, y_vals, alpha=0.3, color='#4CAF50')
+                        ax.set_xlabel('Номер оценки', fontsize=12)
+                        ax.set_ylabel('Итоговый ранг (1-9)', fontsize=12)
+                        ax.set_title('Динамика изменения ценности ресурса', fontsize=14, fontweight='bold')
+                        ax.set_ylim(0.5, 9.5)
+                        ax.set_yticks(range(1, 10))
+                        ax.grid(True, alpha=0.3)
+
+                        for i, (x, y) in enumerate(zip(x_vals, y_vals)):
+                            ax.annotate(str(y), (x, y), textcoords="offset points", xytext=(0, 10), ha='center',
+                                        fontsize=9)
+
+                        plt.tight_layout()
+
+                        import tempfile
+
+                        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                            plt.savefig(tmp.name, dpi=150, bbox_inches='tight')
+                            plot_path = tmp.name
+                        plt.close()
+
+                        # PDF
+                        buffer = io.BytesIO()
+                        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15 * mm, leftMargin=15 * mm,
+                                                topMargin=20 * mm, bottomMargin=15 * mm)
+                        styles = getSampleStyleSheet()
+
+                        title_style = ParagraphStyle('TitleStyle', parent=styles['Title'], fontName=font_name,
+                                                     fontSize=18, alignment=1, spaceAfter=20)
+                        heading_style = ParagraphStyle('HeadingStyle', parent=styles['Heading2'], fontName=font_name,
+                                                       fontSize=14, spaceAfter=10, textColor=colors.darkgreen)
+                        normal_style = ParagraphStyle('NormalStyle', parent=styles['Normal'], fontName=font_name,
+                                                      fontSize=9, leading=12)
+
+                        story = []
+
+                        # Заголовок
+                        res_info = df_res[df_res['ID'] == res_for_detail].iloc[0]
+                        story.append(Paragraph(f"Отчёт по ресурсу №{res_for_detail}", title_style))
+                        story.append(Spacer(1, 5 * mm))
+
+                        # Информация о ресурсе
+                        info_text = f"""
+                        <b>Название:</b> {res_info.get('Название', 'Н/Д')}<br/>
+                        <b>Категория доступа:</b> {res_info.get('Категория', 'Н/Д')}<br/>
+                        <b>Дата создания:</b> {res_info.get('Дата создания', 'Н/Д')}<br/>
+                        """
+                        if has_new_fields:
+                            info_text += f"""
+                            <b>Конфиденциальность:</b> {res_info.get('Конфиденциальность', 'Н/Д')}<br/>
+                            <b>Количество пользователей:</b> {res_info.get('Пользователи', 'Н/Д')}<br/>
+                            <b>Критичность:</b> {res_info.get('Критичность', 'Н/Д')}<br/>
+                            <b>Резервное копирование:</b> {res_info.get('Бэкап', 'Н/Д')}<br/>
+                            """
+                        story.append(Paragraph(info_text, normal_style))
+                        story.append(Spacer(1, 10 * mm))
+
+                        # График
+                        story.append(Paragraph("Динамика изменения ценности", heading_style))
+                        story.append(Spacer(1, 5 * mm))
+                        story.append(Image(plot_path, width=160 * mm, height=80 * mm))
+                        story.append(Spacer(1, 10 * mm))
+
+                        # ========== ТАБЛИЦА С ПЕРЕНОСОМ ТЕКСТА ==========
+                        story.append(Paragraph("История оценок", heading_style))
+                        story.append(Spacer(1, 5 * mm))
+
+                        # Создаём таблицу с Paragraph для колонки "Событие"
+                        table_data = [["№", "Дата", "Событие", "Р", "Ф", "О", "Ю", "Рп", "С"]]
+
+                        for idx, row in df_detail.iterrows():
+                            # Ключевое: оборачиваем событие в Paragraph для автоматического переноса
+                            event_para = Paragraph(row['Событие'], normal_style)
+                            table_data.append([
+                                str(idx + 1),
+                                row['Дата'][:16],
+                                event_para,
+                                str(row['Ранг']),
+                                str(row['Фин']),
+                                str(row['Опер']),
+                                str(row['Юр']),
+                                str(row['Реп']),
+                                str(row['Страт'])
+                            ])
+
+                        # Ширины колонок
+                        col_widths = [10 * mm, 35 * mm, 85 * mm, 8 * mm, 8 * mm, 8 * mm, 8 * mm, 8 * mm, 8 * mm]
+
+                        table = Table(table_data, colWidths=col_widths, repeatRows=1)
+                        table.setStyle(TableStyle([
+                            ('FONTNAME', (0, 0), (-1, -1), font_name),
+                            ('FONTSIZE', (0, 0), (-1, -1), 8),
+                            ('BACKGROUND', (0, 0), (-1, 0), colors.darkgreen),
+                            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey]),
+                        ]))
+                        story.append(table)
+                        story.append(Spacer(1, 10 * mm))
+
+                        # Статистика
+                        story.append(Paragraph("Статистика", heading_style))
+                        first_rank = df_detail['Ранг'].iloc[0]
+                        last_rank = df_detail['Ранг'].iloc[-1]
+                        change = last_rank - first_rank
+                        change_text = f"+{change}" if change >= 0 else f"{change}"
+
+                        stats_text = f"""
+                        <b>Всего оценок:</b> {len(df_detail)}<br/>
+                        <b>Минимальный ранг:</b> {df_detail['Ранг'].min()}<br/>
+                        <b>Максимальный ранг:</b> {df_detail['Ранг'].max()}<br/>
+                        <b>Средний ранг:</b> {df_detail['Ранг'].mean():.2f}<br/>
+                        <b>Изменение ранга:</b> {change_text} (с {first_rank} до {last_rank})
+                        """
+                        story.append(Paragraph(stats_text, normal_style))
+
+                        doc.build(story)
+                        buffer.seek(0)
+
+                        os.unlink(plot_path)
+
+                        st.download_button(
+                            "📥 Скачать отчёт (PDF)",
+                            buffer,
+                            f"resource_{res_for_detail}_report.pdf",
+                            "application/pdf",
+                            use_container_width=True
+                        )
+                    except Exception as e:
+                        st.warning(f"PDF экспорт временно недоступен: {e}")
+                        st.info("Для PDF экспорта выполните: pip install reportlab matplotlib")
 
                 if df_detail.iloc[-1]["Детали"]:
                     with st.expander("📋 Детали последнего расчета"):
@@ -1870,13 +2035,11 @@ with tab4:
             else:
                 st.info("ℹ️ Для этого ресурса еще нет оценок.")
 
-        if st.button("🔄 Оптимизировать базу данных"):
+        if st.button("🔄 Оптимизировать базу данных", use_container_width=True):
             db.vacuum_db()
             st.success("✅ База данных оптимизирована")
     else:
         st.info("ℹ️ База данных пуста")
-
-
 # ============================================================================
 # ПОДВАЛ
 # ============================================================================
@@ -1885,7 +2048,7 @@ st.markdown(
     """
     <div style='text-align: center; color: gray; padding: 10px;'>
         © 2025 Система поддержки принятия решений для оценки динамики ценности информационных ресурсов<br>
-        Разработано в рамках ВКР по специальности 10.05.04
+        Разработано в рамках ВКР по специальности 10.03.01
     </div>
     """,
     unsafe_allow_html=True
