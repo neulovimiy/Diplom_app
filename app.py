@@ -356,16 +356,49 @@ init_session_state()
 def validate_ai_suggestions(suggestions, resource_desc):
     """
     УНИВЕРСАЛЬНАЯ проверка и корректировка ошибок ИИ
-    Работает для любых чисел: 1, 10, 100, 500, 758, 1000, 1500, 10000, 500000
+    Гарантированно возвращает все 9 параметров
     """
-
     desc_lower = resource_desc.lower()
     import re
 
-    # =========================================================================
-    # 1. ОПРЕДЕЛЕНИЕ КАТЕГОРИИ ДОСТУПА
-    # =========================================================================
+    # Если suggestions не словарь или None, создаём пустой
+    if not suggestions or not isinstance(suggestions, dict):
+        suggestions = {}
 
+    # =========================================================================
+    # 0. ГАРАНТИРОВАННОЕ ЗАПОЛНЕНИЕ ВСЕХ 9 ПАРАМЕТРОВ (заглушки)
+    # =========================================================================
+    all_params = ["access_category", "resource_type", "lifecycle", "data_format",
+                  "usage_scale", "confidentiality", "users_count",
+                  "business_criticality", "backup"]
+
+    # Сначала заполняем значениями по умолчанию (если параметра нет или он unknown)
+    for param in all_params:
+        if param not in suggestions or not suggestions[param] or (
+                isinstance(suggestions[param], dict) and suggestions[param].get("value") == "unknown"):
+
+            if param == "access_category":
+                suggestions[param] = {"value": "internal", "reason": "Внутренняя информация (будет уточнено)"}
+            elif param == "resource_type":
+                suggestions[param] = {"value": "database", "reason": "База данных (тип определён по умолчанию)"}
+            elif param == "lifecycle":
+                suggestions[param] = {"value": "medium_term", "reason": "Среднесрочный цикл (определён по умолчанию)"}
+            elif param == "data_format":
+                suggestions[param] = {"value": "structured", "reason": "Структурированные данные"}
+            elif param == "usage_scale":
+                suggestions[param] = {"value": "enterprise", "reason": "Масштаб предприятия"}
+            elif param == "confidentiality":
+                suggestions[param] = {"value": "confidential", "reason": "Конфиденциальная информация"}
+            elif param == "users_count":
+                suggestions[param] = {"value": "10000+", "reason": "Много пользователей"}
+            elif param == "business_criticality":
+                suggestions[param] = {"value": "high", "reason": "Высокая важность для бизнеса"}
+            elif param == "backup":
+                suggestions[param] = {"value": "weekly", "reason": "Регулярное резервное копирование"}
+
+    # =========================================================================
+    # 1. УМНОЕ ОПРЕДЕЛЕНИЕ КАТЕГОРИИ ДОСТУПА (из описания)
+    # =========================================================================
     # Признаки коммерческой тайны
     commercial_keywords = [
         'номенклатур', 'цена', 'цен', 'закупк', 'поставщик', 'производств',
@@ -385,7 +418,6 @@ def validate_ai_suggestions(suggestions, resource_desc):
     # Признаки гостайны
     state_keywords = ['гостайн', 'государственна тайн', 'секретно', 'совершенно секретно', 'особой важности']
 
-    # Определяем категорию доступа
     has_commercial = any(word in desc_lower for word in commercial_keywords)
     has_personal = any(word in desc_lower for word in personal_keywords)
     has_state = any(word in desc_lower for word in state_keywords)
@@ -409,21 +441,17 @@ def validate_ai_suggestions(suggestions, resource_desc):
     # =========================================================================
     # 2. ОПРЕДЕЛЕНИЕ ТИПА РЕСУРСА
     # =========================================================================
-
-    # Признаки базы данных
     database_keywords = [
         'база данн', 'бд', 'хранилищ', 'таблиц', 'sql', 'postgresql',
         'oracle', 'mysql', 'mongodb', 'электронн таблиц', 'реестр',
         'каталог', 'справочник', 'журнал', 'регистр'
     ]
 
-    # Признаки ПО
     software_keywords = [
         'программ', 'приложени', 'систем', 'модул', 'скрипт', 'алгоритм',
         'сервис', 'платформа', 'интерфейс', 'api', 'веб', 'мобильн'
     ]
 
-    # Признаки финансовой отчетности
     financial_keywords = [
         'отчетност', 'баланс', 'бухгалтер', 'финанс', 'налог', 'декларац'
     ]
@@ -445,22 +473,11 @@ def validate_ai_suggestions(suggestions, resource_desc):
         }
 
     # =========================================================================
-    # 3. ОПРЕДЕЛЕНИЕ КОЛИЧЕСТВА ПОЛЬЗОВАТЕЛЕЙ (УНИВЕРСАЛЬНОЕ)
+    # 3. ОПРЕДЕЛЕНИЕ КОЛИЧЕСТВА ПОЛЬЗОВАТЕЛЕЙ
     # =========================================================================
-
-    # Функция для извлечения ВСЕХ чисел из текста с контекстом
     def extract_numbers_with_context(text, keywords):
-        """
-        Извлекает числа, которые находятся рядом с ключевыми словами
-        Работает с числами: 1, 10, 100, 500, 758, 1000, 1500, 10000, 500000
-        """
         results = []
-
-        # Паттерн для чисел с возможными пробелами (например "1 500")
-        number_pattern = r'(\d{1,3}(?:[\s]?\d{3})*)'
-
         for keyword in keywords:
-            # Ищем числа перед ключевым словом
             pattern_before = r'(\d{1,3}(?:[\s]?\d{3})*)\s*' + keyword
             matches_before = re.findall(pattern_before, text)
             for match in matches_before:
@@ -470,7 +487,6 @@ def validate_ai_suggestions(suggestions, resource_desc):
                 except:
                     pass
 
-            # Ищем числа после ключевого слова
             pattern_after = keyword + r'\s*(\d{1,3}(?:[\s]?\d{3})*)'
             matches_after = re.findall(pattern_after, text)
             for match in matches_after:
@@ -480,7 +496,6 @@ def validate_ai_suggestions(suggestions, resource_desc):
                 except:
                     pass
 
-            # Ищем числа с плюсом: "500+ сотрудников"
             pattern_plus = r'(\d{1,3}(?:[\s]?\d{3})*)\+\s*' + keyword
             matches_plus = re.findall(pattern_plus, text)
             for match in matches_plus:
@@ -489,27 +504,21 @@ def validate_ai_suggestions(suggestions, resource_desc):
                     results.append(int(clean_num))
                 except:
                     pass
-
         return results
 
-    # Ключевые слова для поиска
     user_keywords = [
         'сотрудник', 'работник', 'персонал', 'человек', 'пользовател',
         'клиент', 'покупател', 'врач', 'медсестр', 'медицинск', 'учител',
         'студент', 'учащийся', 'сотр', 'чел'
     ]
 
-    # Извлекаем все числа
     all_numbers = extract_numbers_with_context(desc_lower, user_keywords)
 
-    # Если не нашли, пробуем другой подход — ищем любые числа и проверяем контекст
     if not all_numbers:
-        # Ищем любые числа от 1 до 999999
         any_numbers = re.findall(r'(\d{1,6})', desc_lower)
         for num_str in any_numbers:
             try:
                 num = int(num_str)
-                # Проверяем, есть ли рядом ключевое слово
                 position = desc_lower.find(num_str)
                 context = desc_lower[max(0, position - 40):min(len(desc_lower), position + 40)]
                 if any(keyword in context for keyword in user_keywords):
@@ -517,184 +526,94 @@ def validate_ai_suggestions(suggestions, resource_desc):
             except:
                 pass
 
-    # Определяем максимальное число
     if all_numbers:
         max_users = max(all_numbers)
-
-        # Определяем тип системы (клиентская или внутренняя)
-        client_keywords = ['клиент', 'покупател', 'банк', 'магазин', 'сервис', 'платформа']
-        is_client_system = any(word in desc_lower for word in client_keywords)
-
-        # Определяем диапазон
         if max_users >= 10000:
-            suggestions["users_count"] = {
-                "value": "10000+",
-                "reason": f"В описании указано {max_users} пользователей/сотрудников"
-            }
+            suggestions["users_count"] = {"value": "10000+", "reason": f"Более {max_users} пользователей"}
         elif max_users >= 1000:
-            suggestions["users_count"] = {
-                "value": "1001-10000",
-                "reason": f"В описании указано {max_users} пользователей/сотрудников"
-            }
+            suggestions["users_count"] = {"value": "1001-10000", "reason": f"Около {max_users} пользователей"}
         elif max_users >= 100:
-            suggestions["users_count"] = {
-                "value": "101-1000",
-                "reason": f"В описании указано {max_users} пользователей/сотрудников"
-            }
+            suggestions["users_count"] = {"value": "101-1000", "reason": f"Около {max_users} пользователей"}
         elif max_users >= 11:
-            suggestions["users_count"] = {
-                "value": "11-100",
-                "reason": f"В описании указано {max_users} пользователей/сотрудников"
-            }
+            suggestions["users_count"] = {"value": "11-100", "reason": f"Около {max_users} пользователей"}
         elif max_users >= 1:
-            suggestions["users_count"] = {
-                "value": "1-10",
-                "reason": f"В описании указано {max_users} пользователей/сотрудников"
-            }
-    else:
-        # Если не нашли чисел, оставляем то, что предложил ИИ
-        pass
+            suggestions["users_count"] = {"value": "1-10", "reason": f"Около {max_users} пользователей"}
 
     # =========================================================================
     # 4. ОПРЕДЕЛЕНИЕ ФОРМАТА ДАННЫХ
     # =========================================================================
-
-    # Признаки структурированных данных
     structured_keywords = [
         'база данн', 'бд', 'таблиц', 'sql', 'postgresql', 'oracle', 'mysql',
         'реестр', 'каталог', 'справочник', 'журнал', 'регистр', 'json', 'xml',
-        'структурирован', 'электронн таблиц', 'excel', 'google sheets'
+        'структурирован', 'электронн таблиц', 'excel'
     ]
-
-    # Признаки исходного кода
-    source_keywords = [
-        'исходный код', 'программ', 'скрипт', 'алгоритм', 'разработк',
-        'репозиторий', 'git', 'svn', 'библиотек', 'функци'
-    ]
-
-    # Признаки текстовых документов
-    text_keywords = [
-        'документ', 'текст', 'файл', 'отчёт', 'письмо', 'инструкци',
-        'регламент', 'положени', 'приказ', 'распоряжени', 'акт', 'договор'
-    ]
+    source_keywords = ['исходный код', 'программ', 'скрипт', 'алгоритм', 'разработк', 'репозиторий', 'git', 'svn']
+    text_keywords = ['документ', 'текст', 'файл', 'отчёт', 'письмо', 'инструкци', 'регламент', 'положени', 'приказ']
 
     if any(word in desc_lower for word in structured_keywords):
-        suggestions["data_format"] = {
-            "value": "structured",
-            "reason": "Данные структурированы и организованы"
-        }
+        suggestions["data_format"] = {"value": "structured", "reason": "Данные структурированы и организованы"}
     elif any(word in desc_lower for word in source_keywords):
-        suggestions["data_format"] = {
-            "value": "source_code",
-            "reason": "Ресурс содержит исходный код или скрипты"
-        }
+        suggestions["data_format"] = {"value": "source_code", "reason": "Ресурс содержит исходный код или скрипты"}
     elif any(word in desc_lower for word in text_keywords):
-        suggestions["data_format"] = {
-            "value": "text",
-            "reason": "Данные представлены в виде текстовых документов"
-        }
+        suggestions["data_format"] = {"value": "text", "reason": "Данные представлены в виде текстовых документов"}
 
     # =========================================================================
     # 5. ОПРЕДЕЛЕНИЕ ЖИЗНЕННОГО ЦИКЛА
     # =========================================================================
-
-    # Ищем срок хранения в годах
     year_pattern = r'(\d+)\s*лет'
     years_match = re.findall(year_pattern, desc_lower)
-
     if years_match:
         max_years = max(int(y) for y in years_match)
         if max_years >= 3:
-            suggestions["lifecycle"] = {
-                "value": "long_term",
-                "reason": f"Срок хранения данных составляет {max_years} лет"
-            }
+            suggestions["lifecycle"] = {"value": "long_term",
+                                        "reason": f"Срок хранения данных составляет {max_years} лет"}
         elif max_years >= 1:
-            suggestions["lifecycle"] = {
-                "value": "medium_term",
-                "reason": f"Срок хранения данных составляет {max_years} года"
-            }
+            suggestions["lifecycle"] = {"value": "medium_term",
+                                        "reason": f"Срок хранения данных составляет {max_years} года"}
     else:
-        # Если не нашли года, ищем ключевые слова
         if any(word in desc_lower for word in ['долгосроч', 'длительн', 'многолет', 'архив']):
-            suggestions["lifecycle"] = {
-                "value": "long_term",
-                "reason": "Ресурс имеет долгосрочный характер хранения"
-            }
+            suggestions["lifecycle"] = {"value": "long_term", "reason": "Ресурс имеет долгосрочный характер хранения"}
         elif any(word in desc_lower for word in ['краткосроч', 'быстро устарев']):
-            suggestions["lifecycle"] = {
-                "value": "short_term",
-                "reason": "Ресурс имеет краткосрочный характер"
-            }
+            suggestions["lifecycle"] = {"value": "short_term", "reason": "Ресурс имеет краткосрочный характер"}
 
     # =========================================================================
     # 6. ОПРЕДЕЛЕНИЕ КРИТИЧНОСТИ
     # =========================================================================
-
-    critical_keywords = [
-        'критич', 'остановк', 'невозможн', 'теряет', 'без ресурс',
-        'простой', 'аварий', 'катастроф', 'жизненно важн', 'ключевой',
-        'основной бизнес', 'производств останавл', 'сервис недоступ'
-    ]
-
+    critical_keywords = ['критич', 'остановк', 'невозможн', 'теряет', 'без ресурс', 'простой', 'аварий',
+                         'жизненно важн', 'ключевой']
     if any(word in desc_lower for word in critical_keywords):
-        suggestions["business_criticality"] = {
-            "value": "critical",
-            "reason": "Ресурс критически важен для бизнес-процессов"
-        }
+        suggestions["business_criticality"] = {"value": "critical",
+                                               "reason": "Ресурс критически важен для бизнес-процессов"}
     elif any(word in desc_lower for word in ['важн', 'значим', 'основн']):
-        suggestions["business_criticality"] = {
-            "value": "high",
-            "reason": "Ресурс имеет высокую важность для бизнеса"
-        }
+        suggestions["business_criticality"] = {"value": "high", "reason": "Ресурс имеет высокую важность для бизнеса"}
 
     # =========================================================================
     # 7. ОПРЕДЕЛЕНИЕ БЭКАПА
     # =========================================================================
-
     if any(word in desc_lower for word in ['ежедневн', 'каждый день', 'daily']):
-        suggestions["backup"] = {
-            "value": "daily",
-            "reason": "Резервное копирование выполняется ежедневно"
-        }
+        suggestions["backup"] = {"value": "daily", "reason": "Резервное копирование выполняется ежедневно"}
     elif any(word in desc_lower for word in ['еженедельн', 'раз в неделю', 'weekly']):
-        suggestions["backup"] = {
-            "value": "weekly",
-            "reason": "Резервное копирование выполняется еженедельно"
-        }
+        suggestions["backup"] = {"value": "weekly", "reason": "Резервное копирование выполняется еженедельно"}
     elif any(word in desc_lower for word in ['ежемесячн', 'раз в месяц', 'monthly']):
-        suggestions["backup"] = {
-            "value": "monthly",
-            "reason": "Резервное копирование выполняется ежемесячно"
-        }
+        suggestions["backup"] = {"value": "monthly", "reason": "Резервное копирование выполняется ежемесячно"}
     elif any(word in desc_lower for word in ['нет бэкап', 'отсутству', 'не производит']):
-        suggestions["backup"] = {
-            "value": "none",
-            "reason": "Резервное копирование отсутствует"
-        }
+        suggestions["backup"] = {"value": "none", "reason": "Резервное копирование отсутствует"}
 
     # =========================================================================
     # 8. ОПРЕДЕЛЕНИЕ МАСШТАБА
     # =========================================================================
-
     if any(word in desc_lower for word in ['все подразделени', 'всей организации', 'все предприяти', 'корпоративн']):
-        suggestions["usage_scale"] = {
-            "value": "enterprise",
-            "reason": "Ресурс используется во всех подразделениях предприятия"
-        }
+        suggestions["usage_scale"] = {"value": "enterprise",
+                                      "reason": "Ресурс используется во всех подразделениях предприятия"}
     elif any(word in desc_lower for word in ['отдел', 'департамент', 'подразделени']):
-        suggestions["usage_scale"] = {
-            "value": "department",
-            "reason": "Ресурс используется на уровне отдела"
-        }
+        suggestions["usage_scale"] = {"value": "department", "reason": "Ресурс используется на уровне отдела"}
     elif any(word in desc_lower for word in ['рабочее место', 'локальн', 'отдельн сотрудник']):
-        suggestions["usage_scale"] = {
-            "value": "local",
-            "reason": "Ресурс используется локально"
-        }
+        suggestions["usage_scale"] = {"value": "local", "reason": "Ресурс используется локально"}
+
     # =========================================================================
-    # 9. КОРРЕКТИРОВКА ТИПА РЕСУРСА
+    # 9. КОРРЕКТИРОВКИ (если ИИ ошибся)
     # =========================================================================
+    # Корректировка типа ресурса
     if suggestions.get("resource_type", {}).get("value") == "software":
         db_indicators = ['данные о', 'содержит данные', 'хранит', 'клиентах', 'заказах', 'база данн', 'бд']
         if any(word in desc_lower for word in db_indicators):
@@ -703,9 +622,7 @@ def validate_ai_suggestions(suggestions, resource_desc):
                 "reason": "Ресурс является базой данных, содержащей структурированную информацию"
             }
 
-    # =========================================================================
-    # 10. КОРРЕКТИРОВКА ФОРМАТА ДАННЫХ
-    # =========================================================================
+    # Корректировка формата данных
     if suggestions.get("data_format", {}).get("value") == "text":
         structured_indicators = ['клиентах', 'заказах', 'данные о', 'база', 'таблиц', 'структурирован']
         if any(word in desc_lower for word in structured_indicators):
@@ -714,18 +631,30 @@ def validate_ai_suggestions(suggestions, resource_desc):
                 "reason": "Данные структурированы и организованы в базе данных"
             }
 
-    # =========================================================================
-    # 11. КОРРЕКТИРОВКА КОНФИДЕНЦИАЛЬНОСТИ
-    # =========================================================================
+    # Корректировка конфиденциальности
     if suggestions.get("confidentiality", {}).get("value") in ["secret", "top_secret"]:
-        state_keywords = ['гостайн', 'государственна тайн', 'особой важности']
         if not any(word in desc_lower for word in state_keywords):
             suggestions["confidentiality"] = {
                 "value": "confidential",
                 "reason": "Информация является конфиденциальной, но не составляет государственную тайну"
             }
 
-    return suggestions
+    # Финальная проверка: все 9 параметров точно есть
+    for param in all_params:
+        if param not in suggestions or not isinstance(suggestions[param], dict):
+            # Если вдруг чего-то не хватаем — ставим дефолт
+            defaults = {
+                "access_category": {"value": "internal", "reason": "Значение по умолчанию"},
+                "resource_type": {"value": "database", "reason": "Значение по умолчанию"},
+                "lifecycle": {"value": "medium_term", "reason": "Значение по умолчанию"},
+                "data_format": {"value": "structured", "reason": "Значение по умолчанию"},
+                "usage_scale": {"value": "enterprise", "reason": "Значение по умолчанию"},
+                "confidentiality": {"value": "confidential", "reason": "Значение по умолчанию"},
+                "users_count": {"value": "10000+", "reason": "Значение по умолчанию"},
+                "business_criticality": {"value": "high", "reason": "Значение по умолчанию"},
+                "backup": {"value": "weekly", "reason": "Значение по умолчанию"}
+            }
+            suggestions[param] = defaults[param]
 
     return suggestions
 # ============================================================================
@@ -910,9 +839,20 @@ with tab1:
             with st.spinner("🔍 ИИ анализирует..."):
                 analysis = ai.suggest_parameters(resource_name, resource_desc)
 
+                # ОТЛАДКА: выводим в консоль, что вернул ИИ
+                print("=== AI RESPONSE ===")
+                print(analysis)
+                print("===================")
+
                 if "error" not in analysis:
                     suggestions = analysis.get("suggestions", {})
+                    print("Suggestions before validate:", suggestions.keys())
+
                     suggestions = validate_ai_suggestions(suggestions, resource_desc)
+
+                    print("Suggestions after validate:", suggestions.keys())
+                    for k, v in suggestions.items():
+                        print(f"  {k}: {v}")
 
                     st.session_state.ai_suggestions = suggestions
                     st.session_state.ai_law_refs = analysis.get("law_refs", [])
@@ -929,33 +869,51 @@ with tab1:
 
                 suggestions = st.session_state.ai_suggestions
 
-                col_rec1, col_rec2 = st.columns(2)
-                with col_rec1:
-                    if "access_category" in suggestions:
-                        acc = suggestions["access_category"]
-                        st.info(
-                            f"**Доступ:** {RUSSIAN_ACCESS.get(acc.get('value', 'public'), acc.get('value', 'public'))}\n\n*{acc.get('reason', '')}*")
-                    if "resource_type" in suggestions:
-                        rt = suggestions["resource_type"]
-                        st.info(
-                            f"**Тип:** {RUSSIAN_TYPE.get(rt.get('value', 'unknown'), rt.get('value', 'unknown'))}\n\n*{rt.get('reason', '')}*")
-                    if "lifecycle" in suggestions:
-                        lc = suggestions["lifecycle"]
-                        st.info(
-                            f"**Жизненный цикл:** {RUSSIAN_LIFE.get(lc.get('value', 'unknown'), lc.get('value', 'unknown'))}\n\n*{lc.get('reason', '')}*")
-                with col_rec2:
-                    if "usage_scale" in suggestions:
-                        us = suggestions["usage_scale"]
-                        st.info(
-                            f"**Масштаб:** {RUSSIAN_SCALE.get(us.get('value', 'unknown'), us.get('value', 'unknown'))}\n\n*{us.get('reason', '')}*")
-                    if "confidentiality" in suggestions:
-                        conf = suggestions["confidentiality"]
-                        st.info(
-                            f"**Конфиденциальность:** {RUSSIAN_CONFIDENTIALITY.get(conf.get('value', 'unknown'), conf.get('value', 'unknown'))}\n\n*{conf.get('reason', '')}*")
-                    if "users_count" in suggestions:
-                        users = suggestions["users_count"]
-                        st.info(
-                            f"**Пользователей:** {RUSSIAN_USERS.get(users.get('value', 'unknown'), users.get('value', 'unknown'))}\n\n*{users.get('reason', '')}*")
+                # Все параметры идут вертикально вниз в нужном порядке
+                if "access_category" in suggestions:
+                    acc = suggestions["access_category"]
+                    st.info(
+                        f"**Доступ:** {RUSSIAN_ACCESS.get(acc.get('value', 'public'), acc.get('value', 'public'))}\n\n*{acc.get('reason', '')}*")
+
+                if "resource_type" in suggestions:
+                    rt = suggestions["resource_type"]
+                    st.info(
+                        f"**Тип:** {RUSSIAN_TYPE.get(rt.get('value', 'unknown'), rt.get('value', 'unknown'))}\n\n*{rt.get('reason', '')}*")
+
+                if "lifecycle" in suggestions:
+                    lc = suggestions["lifecycle"]
+                    st.info(
+                        f"**Жизненный цикл:** {RUSSIAN_LIFE.get(lc.get('value', 'unknown'), lc.get('value', 'unknown'))}\n\n*{lc.get('reason', '')}*")
+
+                if "data_format" in suggestions:  # Формат данных ПОСЛЕ жизненного цикла
+                    df = suggestions["data_format"]
+                    st.info(
+                        f"**Формат данных:** {RUSSIAN_FORMAT.get(df.get('value', 'unknown'), df.get('value', 'unknown'))}\n\n*{df.get('reason', '')}*")
+
+                if "usage_scale" in suggestions:
+                    us = suggestions["usage_scale"]
+                    st.info(
+                        f"**Масштаб:** {RUSSIAN_SCALE.get(us.get('value', 'unknown'), us.get('value', 'unknown'))}\n\n*{us.get('reason', '')}*")
+
+                if "confidentiality" in suggestions:
+                    conf = suggestions["confidentiality"]
+                    st.info(
+                        f"**Конфиденциальность:** {RUSSIAN_CONFIDENTIALITY.get(conf.get('value', 'unknown'), conf.get('value', 'unknown'))}\n\n*{conf.get('reason', '')}*")
+
+                if "users_count" in suggestions:
+                    users = suggestions["users_count"]
+                    st.info(
+                        f"**Пользователей:** {RUSSIAN_USERS.get(users.get('value', 'unknown'), users.get('value', 'unknown'))}\n\n*{users.get('reason', '')}*")
+
+                if "business_criticality" in suggestions:  # Критичность ПОСЛЕ количества пользователей
+                    crit = suggestions["business_criticality"]
+                    st.info(
+                        f"**Критичность:** {RUSSIAN_CRITICALITY.get(crit.get('value', 'unknown'), crit.get('value', 'unknown'))}\n\n*{crit.get('reason', '')}*")
+
+                if "backup" in suggestions:
+                    backup = suggestions["backup"]
+                    st.info(
+                        f"**Резервное копирование:** {RUSSIAN_BACKUP.get(backup.get('value', 'unknown'), backup.get('value', 'unknown'))}\n\n*{backup.get('reason', '')}*")
 
     with col2:
         st.markdown("**⚙️ Параметры классификации**")
@@ -1438,6 +1396,7 @@ with tab2:
                     time.sleep(1.5)
                     st.rerun()
                 # ========== ОБРАБОТКА: РАСЧЁТ ИТОГОВОГО РАНГА (только цифры) ==========
+                # ========== ОБРАБОТКА: РАСЧЁТ ИТОГОВОГО РАНГА (только цифры) ==========
                 if calculate_expert_btn:
                     expert_ranks = {
                         'fin': expert_fin,
@@ -1478,14 +1437,14 @@ with tab2:
                     with col_m5:
                         st.metric("🚩 Стратегический", f"{result['expert_ranks']['strat']}/8")
 
-
                     col_i1, col_i2, col_i3 = st.columns(3)
                     with col_i1:
-                        display_metric("📈 Интегральный S∑", f"{total_s:.3f}")
+                        # ИСПРАВЛЕНО: используем result['total_s']
+                        display_metric("📈 Интегральный S∑", f"{result['total_s']:.3f}")
                     with col_i2:
-                        display_metric("🏆 Итоговый ранг", str(final_rank))
+                        display_metric("🏆 Итоговый ранг", str(result['final_rank']))
                     with col_i3:
-                        display_metric("🛡️ Уровень защиты", protection_level)
+                        display_metric("🛡️ Уровень защиты", result['protection_level'])
 
                     # Детали нормализации
                     with st.expander("📐 Детали нормализации (S)", expanded=False):

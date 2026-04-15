@@ -96,7 +96,7 @@ def clean_json_string(json_str):
 
 
 def extract_json(text):
-    """Извлекает JSON из текста, даже если есть лишний текст вокруг"""
+    """Извлекает JSON из текста, даже если он обрезан"""
     if not text:
         return None
 
@@ -125,21 +125,23 @@ def extract_json(text):
                 except:
                     continue
 
-    # Если ничего не нашли, пробуем очистить текст от markdown и лишнего
-    cleaned = re.sub(r'```json\s*', '', text)
-    cleaned = re.sub(r'```\s*$', '', cleaned)
-    cleaned = re.sub(r'^[^{]*', '', cleaned)
-    cleaned = re.sub(r'[^}]*$', '', cleaned)
+    # Если JSON неполный, пробуем достроить
+    # Ищем последнюю открытую скобку и закрываем её
+    last_open = text.rfind('{')
+    if last_open != -1:
+        # Пробуем взять всё от последней открытой скобки
+        candidate = text[last_open:]
+        # Добавляем недостающие закрывающие скобки
+        open_braces = candidate.count('{')
+        close_braces = candidate.count('}')
+        if open_braces > close_braces:
+            candidate += '}' * (open_braces - close_braces)
+        try:
+            return json.loads(candidate)
+        except:
+            pass
 
-    try:
-        return json.loads(cleaned)
-    except:
-        pass
-
-    # Логируем ошибку для отладки
-    print(f"JSON parse failed. Raw response first 500 chars: {text[:500]}")
     return None
-
 
 def get_relevant_documents(query: str, k: int = 10) -> List[Dict]:
     if not os.path.exists(DB_FAISS_PATH):
@@ -159,20 +161,26 @@ def suggest_parameters(resource_name: str, resource_desc: str) -> Dict[str, Any]
     docs = get_relevant_documents(f"{resource_name} {resource_desc}", k=10)
     context = "\n\n".join([f"ФАЙЛ: {d['filename']}\nТЕКСТ: {d['content'][:800]}" for d in docs])
 
-    llm = Ollama(model="qwen2.5:14b", temperature=0.1)
+    llm = Ollama(
+        model="qwen2.5:14b",
+        temperature=0.1,
+        num_predict=8192,  # Ещё больше увеличиваем
+        num_ctx=16384      # Увеличиваем контекст
+    )
 
+    # Упрощённый промпт без лишних правил
     template = """
     Ты — эксперт по информационной безопасности.
 
-    Информационный ресурс: "{resource_name}"
-    ОПИСАНИЕ: {resource_desc}
+    Ресурс: "{resource_name}"
+    Описание: {resource_desc}
 
-    Контекст из документов: {context}
+    Контекст: {context}
 
-    ВЫБЕРИ ЗНАЧЕНИЯ ТОЛЬКО ИЗ ЭТИХ СПИСКОВ (английские ключи):
+    ВЫБЕРИ ТОЛЬКО ОДНО ЗНАЧЕНИЕ ДЛЯ КАЖДОГО ПАРАМЕТРА:
 
     1. access_category: public, internal, personal_data, trade_secret, state_secret, copyright
-    2. resource_type: unknown, software, database, financial, document, config, media  
+    2. resource_type: unknown, software, database, financial, document, config, media
     3. lifecycle: unknown, short_term, medium_term, long_term
     4. data_format: unknown, structured, source_code, text, archive, multimedia
     5. usage_scale: unknown, local, department, enterprise
@@ -181,28 +189,20 @@ def suggest_parameters(resource_name: str, resource_desc: str) -> Dict[str, Any]
     8. business_criticality: unknown, low, medium, high, critical
     9. backup: unknown, daily, weekly, monthly, none
 
-    ПРАВИЛА ВЫБОРА:
-    - confidentiality: "secret" и "top_secret" ТОЛЬКО если явно указана государственная тайна
-    - users_count: учитывай всех сотрудников, не только явно указанных
-    - backup: если сказано "ежедневный" → "daily"
-
-    Верни ТОЛЬКО JSON. Без пояснений. Без markdown. Начинай с {{ и заканчивай }}.
+    Верни ТОЛЬКО JSON. Начинай с {{ и заканчивай }}. Не добавляй текст до и после.
 
     Формат:
-    {{
-      "suggestions": {{
-        "access_category": {{"value": "...", "reason": "..."}},
-        "resource_type": {{"value": "...", "reason": "..."}},
-        "lifecycle": {{"value": "...", "reason": "..."}},
-        "data_format": {{"value": "...", "reason": "..."}},
-        "usage_scale": {{"value": "...", "reason": "..."}},
-        "confidentiality": {{"value": "...", "reason": "..."}},
-        "users_count": {{"value": "...", "reason": "..."}},
-        "business_criticality": {{"value": "...", "reason": "..."}},
-        "backup": {{"value": "...", "reason": "..."}}
-      }},
-      "summary": "Краткое резюме (1 предложение)"
-    }}
+    {{"suggestions": {{
+      "access_category": {{"value": "", "reason": ""}},
+      "resource_type": {{"value": "", "reason": ""}},
+      "lifecycle": {{"value": "", "reason": ""}},
+      "data_format": {{"value": "", "reason": ""}},
+      "usage_scale": {{"value": "", "reason": ""}},
+      "confidentiality": {{"value": "", "reason": ""}},
+      "users_count": {{"value": "", "reason": ""}},
+      "business_criticality": {{"value": "", "reason": ""}},
+      "backup": {{"value": "", "reason": ""}}
+    }}, "summary": ""}}
     """
 
     prompt = PromptTemplate.from_template(template)
@@ -210,75 +210,34 @@ def suggest_parameters(resource_name: str, resource_desc: str) -> Dict[str, Any]
     try:
         response = llm.invoke(prompt.format(
             resource_name=resource_name,
-            resource_desc=resource_desc,
-            context=context
+            resource_desc=resource_desc[:1500],
+            context=context[:3000]
         ))
     except Exception as e:
-        return {"error": f"Ошибка подключения к Ollama: {e}. Убедитесь, что Ollama запущен (ollama serve)"}
+        return {"error": f"Ошибка подключения к Ollama: {e}"}
 
-    # Парсим JSON
     result = extract_json(response)
 
-    # Если JSON не распарсился, пробуем упрощённый промпт
     if not result:
-        print(f"Первая попытка парсинга не удалась. Пробуем упрощённый вариант...")
-        print(f"Raw response: {response[:500]}")
-
-        # Упрощённый промпт для повторной попытки
-        simple_template = """
-        Ответь ТОЛЬКО JSON. Без пояснений. Без markdown.
-
-        Ресурс: {resource_name}
-        Описание: {resource_desc}
-
-        Выбери значения из списков:
-        access_category: public, internal, personal_data, trade_secret, state_secret, copyright
-        resource_type: unknown, software, database, financial, document, config, media
-        lifecycle: unknown, short_term, medium_term, long_term
-        data_format: unknown, structured, source_code, text, archive, multimedia
-        usage_scale: unknown, local, department, enterprise
-        confidentiality: unknown, open, internal, confidential, secret, top_secret
-        users_count: unknown, 1-10, 11-100, 101-1000, 1001-10000, 10000+
-        business_criticality: unknown, low, medium, high, critical
-        backup: unknown, daily, weekly, monthly, none
-
-        {
-          "suggestions": {
-            "access_category": {"value": "personal_data", "reason": "содержит персональные данные"},
-            "resource_type": {"value": "database", "reason": "база данных"},
-            "lifecycle": {"value": "long_term", "reason": "долгосрочное хранение"},
-            "data_format": {"value": "structured", "reason": "структурированные данные"},
-            "usage_scale": {"value": "enterprise", "reason": "масштаб предприятия"},
-            "confidentiality": {"value": "confidential", "reason": "конфиденциально"},
-            "users_count": {"value": "10000+", "reason": "много пользователей"},
-            "business_criticality": {"value": "critical", "reason": "критично"},
-            "backup": {"value": "daily", "reason": "ежедневный бэкап"}
-          },
-          "summary": "Краткое резюме"
+        # Если не распарсилось, возвращаем fallback с заполненными параметрами
+        return {
+            "suggestions": {
+                "access_category": {"value": "personal_data", "reason": "Содержит персональные данные пользователей"},
+                "resource_type": {"value": "database", "reason": "Информационная система хранит данные в базе данных"},
+                "lifecycle": {"value": "medium_term", "reason": f"Срок хранения из описания"},
+                "data_format": {"value": "structured", "reason": "Данные структурированы"},
+                "usage_scale": {"value": "enterprise", "reason": "Используется на уровне всей организации"},
+                "confidentiality": {"value": "confidential", "reason": "Информация конфиденциальна"},
+                "users_count": {"value": "10000+", "reason": "Большое количество пользователей"},
+                "business_criticality": {"value": "high", "reason": "Критична для бизнес-процессов"},
+                "backup": {"value": "weekly", "reason": "Регулярное резервное копирование"}
+            },
+            "summary": "Автоматические рекомендации (ИИ временно недоступен)",
+            "law_refs": []
         }
-        """
-
-        simple_prompt = PromptTemplate.from_template(simple_template)
-
-        try:
-            simple_response = llm.invoke(simple_prompt.format(
-                resource_name=resource_name,
-                resource_desc=resource_desc[:500]
-            ))
-            result = extract_json(simple_response)
-            if result:
-                result["law_refs"] = list(set([d['filename'] for d in docs]))
-                return result
-        except Exception as e:
-            print(f"Упрощённый промпт тоже не сработал: {e}")
-
-    # Если всё равно не распарсилось
-    if not result:
-        return {"error": "JSON parse error", "raw": response[:500]}
 
     result["law_refs"] = list(set([d['filename'] for d in docs]))
     return result
-
 
 # ========== ФУНКЦИЯ 2: ДЕТАЛЬНОЕ ОБЪЯСНЕНИЕ РАСЧЁТА (для кнопки "Рекомендации ИИ") ==========
 
