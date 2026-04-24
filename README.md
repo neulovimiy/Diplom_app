@@ -135,7 +135,7 @@ LLM генерирует:
 - retrieval 8–20 релевантных фрагментов
 - использование в prompt для LLM
 
-👉 снижает галлюцинации модели и повышает обоснованность ответов
+снижает галлюцинации модели и повышает обоснованность ответов
 
 ---
 
@@ -179,6 +179,19 @@ LLM генерирует:
 - работы с многокритериальными моделями
 
 ---
+
+## Как выглядит интерфейс
+
+<img width="1907" height="1479" alt="image" src="https://github.com/user-attachments/assets/fac9c716-ed14-4535-8818-098c5b89f4b3" />
+
+<img width="1906" height="716" alt="image" src="https://github.com/user-attachments/assets/53efb2e8-6b84-49ec-8c51-f93ac52756e8" />
+
+<img width="1893" height="1474" alt="image" src="https://github.com/user-attachments/assets/7408941c-f21d-4830-858b-2b81921158c2" />
+
+<img width="1895" height="1451" alt="image" src="https://github.com/user-attachments/assets/4449552b-69ec-4939-b140-421fc5872d5b" />
+
+<img width="2180" height="567" alt="image" src="https://github.com/user-attachments/assets/840e0257-9b14-4cc8-a512-d3d58ac91100" />
+
 
 ## Как запустить
 
